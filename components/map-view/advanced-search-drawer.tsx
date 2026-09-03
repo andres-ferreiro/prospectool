@@ -10,7 +10,7 @@ import { AdvancedCategoryTree } from "./advanced-category-tree";
 import { SimpleCombobox } from "./simple-combobox";
 import { ENTIDADES } from "@/lib/inegi/entidades";
 import { MUNICIPIOS } from "@/lib/inegi/municipios";
-import { normalizeSpanish } from "@/lib/scian/groups";
+import { reverseGeocodeToEntidadMunicipio } from "@/lib/geo-mx";
 import { SCIAN_CATALOG } from "@/lib/scian/catalog";
 import { useIsDesktop } from "@/hooks/use-media-query";
 
@@ -27,12 +27,6 @@ interface AdvancedSearchDrawerProps {
    *  drawer is purely a config UI and closes immediately on submit so the
    *  search can keep running while the user does other things. */
   onSubmit: (codes: string[], entidad: string, municipio: string) => void;
-}
-
-function fuzzyNameMatch(a: string, b: string): boolean {
-  const na = normalizeSpanish(a);
-  const nb = normalizeSpanish(b);
-  return na.includes(nb) || nb.includes(na);
 }
 
 // A single category can have thousands of results across a whole municipio
@@ -108,34 +102,13 @@ export function AdvancedSearchDrawer({ open, onOpenChange, mapCenter, onSubmit }
   // Estado — never overwrites a manual choice.
   useEffect(() => {
     if (!open || !mapCenter || entidad) return;
-    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-    if (!token) return;
 
     let cancelled = false;
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${mapCenter.lng},${mapCenter.lat}.json?types=region,place&country=mx&access_token=${token}`;
-
-    fetch(url)
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return;
-        const features = (data.features ?? []) as { text: string; place_type: string[] }[];
-        const regionText = features.find((f) => f.place_type.includes("region"))?.text;
-        const placeText = features.find((f) => f.place_type.includes("place"))?.text;
-        if (!regionText) return;
-
-        const matchedEntidad = ENTIDADES.find((e) => fuzzyNameMatch(e.name, regionText));
-        if (!matchedEntidad) return;
-        setEntidad(matchedEntidad.code);
-
-        if (!placeText) return;
-        const matchedMunicipio = MUNICIPIOS.find(
-          (m) => m.entidadCode === matchedEntidad.code && fuzzyNameMatch(m.name, placeText)
-        );
-        if (matchedMunicipio) setMunicipio(matchedMunicipio.municipioCode);
-      })
-      .catch(() => {
-        // Best-effort only — leave the fields empty for the user to fill in.
-      });
+    reverseGeocodeToEntidadMunicipio(mapCenter).then(({ entidad: matchedEntidad, municipio: matchedMunicipio }) => {
+      if (cancelled || !matchedEntidad) return;
+      setEntidad(matchedEntidad);
+      if (matchedMunicipio) setMunicipio(matchedMunicipio);
+    });
 
     return () => {
       cancelled = true;
