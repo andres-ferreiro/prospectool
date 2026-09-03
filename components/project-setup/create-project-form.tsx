@@ -10,15 +10,16 @@ import type { ProjectRow } from "@/lib/db/types";
 
 interface CreateProjectFormProps {
   onCreated: (project: ProjectRow) => void;
+  initialKeywords?: string[];
 }
 
-export function CreateProjectForm({ onCreated }: CreateProjectFormProps) {
+export function CreateProjectForm({ onCreated, initialKeywords = [] }: CreateProjectFormProps) {
   // Sent to the API as `productService` / stored in the `product_service`
   // column — that field was captured but never displayed anywhere, so it's
   // repurposed here as the project's display name (shown in the project
   // switcher) rather than adding a new column for the same purpose.
   const [name, setName] = useState("");
-  const [keywords, setKeywords] = useState<string[]>([]);
+  const [keywords, setKeywords] = useState<string[]>(initialKeywords);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
