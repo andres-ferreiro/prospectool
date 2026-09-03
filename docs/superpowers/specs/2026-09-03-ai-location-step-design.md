@@ -23,9 +23,11 @@ Out of scope (deferred):
 
 `AiDescribeStep`'s `onSuggested` callback gains a second parameter: `(keywords: string[], scianCodes: string[]) => void`. It reads `data.scianCodes` from the same `/api/ai/suggest-keywords` response it already fetches (the field has existed on the wire since Piece 1; nothing reads it yet).
 
-`CreateProjectDrawer` stores the codes in a new `initialScianCodes` state alongside the existing `initialKeywords`, and its own `onCreated` prop becomes `(project: ProjectRow, scianCodes: string[]) => void` — passed through unchanged from `CreateProjectForm`'s existing `onCreated(project)` call, paired with whatever codes this creation flow captured.
+`CreateProjectDrawer` stores the codes in a new `initialScianCodes` state alongside the existing `initialKeywords`.
 
-`app-shell.tsx`'s `handleCreated` receives both. If `scianCodes.length > 0`, it stores them in new state (e.g. `pendingAiSearch: string[] | null`) and renders the new location overlay instead of leaving the user straight on the map. If `scianCodes.length === 0` (the user clicked "Omitir, elegir manualmente" at the describe step, or none of the AI's suggestions passed catalog validation), behavior is unchanged from today — land on the map with keyword results only.
+**Important constraint discovered while planning this piece:** `app-shell.tsx`'s `handleCreated` calls `router.push(`/proyectos/${project.id}`)` after creation, and `/proyectos/[id]/page.tsx` is a server component — so this navigation fully remounts `AppShell` as a brand-new instance for the new route. Any `scianCodes` held in the *old* instance's React state would be lost before the new instance ever mounts; extending `onCreated`'s prop signature to carry them through doesn't survive this boundary.
+
+Instead, `CreateProjectDrawer` stashes the codes in `sessionStorage` (a new small helper, `lib/pending-ai-search.ts`, following the same one-shot browser-storage pattern already used for onboarding hints in `lib/onboarding.ts`) keyed by the new project's id, right before calling the existing, unchanged `onCreated(project)`. `AppShell` reads and immediately clears that entry in an effect keyed on `activeProject.id` (alongside its existing per-project effects) — if non-empty, it shows the new location overlay instead of leaving the user straight on the map. If empty (the user clicked "Omitir, elegir manualmente" at the describe step, none of the AI's suggestions passed catalog validation, or `sessionStorage` is unavailable), behavior is unchanged from today — land on the map with keyword results only.
 
 ### The location overlay
 
