@@ -31,6 +31,7 @@ import { readCachedSearch, writeCachedSearch } from "@/lib/search-cache";
 import { hasSeenMapControlsHint, markMapControlsHintSeen } from "@/lib/onboarding";
 import { haversineMeters, radiusFromBounds } from "@/lib/geo";
 import { toast } from "@/lib/toast";
+import { SCIAN_CATALOG } from "@/lib/scian/catalog";
 
 type Status = "idle" | "loading" | "loaded" | "error";
 
@@ -74,6 +75,7 @@ const ADVANCED_SEARCH_COLOR = "#6366f1";
 // Mapbox paint expressions need a literal color, not a CSS var, since they
 // run on the GPU outside the page's own styling.
 const DEFAULT_PIN_COLOR = "#0a84ff";
+const SCIAN_TITLE_BY_CODE = new Map(SCIAN_CATALOG.map((c) => [c.code, c.title]));
 const PINS_SOURCE_ID = "business-pins";
 const CLUSTER_LAYER_ID = "business-clusters";
 const UNCLUSTERED_LAYER_ID = "business-unclustered-point";
@@ -122,6 +124,17 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
   // genuinely risks jank/crashes. Users can hide them entirely (they're
   // still all in the results list/drawer), and rendering itself is capped.
   const [showAdvancedPins, setShowAdvancedPins] = useState(true);
+  // Which SCIAN code(s) each advanced-search result matched — mirrors
+  // businessKeywords for the regular search, letting the settings drawer
+  // filter advanced results per-category the same way it already does
+  // per-keyword.
+  const [advancedResultCodes, setAdvancedResultCodes] = useState<Map<string, Set<string>>>(new Map());
+  const [activeAdvancedCodes, setActiveAdvancedCodes] = useState<Set<string>>(new Set());
+  // The full code list from the most recent advanced search — stays stable
+  // while activeAdvancedCodes changes as the user toggles categories off,
+  // so a toggled-off category still shows up (unchecked) in the settings
+  // drawer instead of disappearing from the list entirely.
+  const [advancedCodes, setAdvancedCodes] = useState<string[]>([]);
   const [advancedSearchOpen, setAdvancedSearchOpen] = useState(false);
   const [advancedSearchCenter, setAdvancedSearchCenter] = useState<{ lat: number; lng: number } | null>(null);
   const [advancedProgress, setAdvancedProgress] = useState<{
@@ -130,6 +143,10 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     total: number;
     found: number;
     failed: number;
+    // Titles of the categories currently being fetched (up to
+    // ADVANCED_SEARCH_CONCURRENCY at once) — shown so the progress card
+    // reads as "looking up X" rather than just a bare counter.
+    currentTitles: string[];
   } | null>(null);
   // Dismissing the progress card used to discard advancedProgress entirely
   // — if a multi-minute background search was still running, that was the
@@ -182,6 +199,15 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     });
   };
 
+  const toggleAdvancedCode = (code: string) => {
+    setActiveAdvancedCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+
   const keywordCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const keywordSet of businessKeywords.values()) {
@@ -189,6 +215,14 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     }
     return counts;
   }, [businessKeywords]);
+
+  const advancedCodeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const codeSet of advancedResultCodes.values()) {
+      for (const code of codeSet) counts.set(code, (counts.get(code) ?? 0) + 1);
+    }
+    return counts;
+  }, [advancedResultCodes]);
 
   const stageCounts = useMemo(() => {
     const counts = new Map<Stage, number>();
@@ -247,8 +281,22 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
         const layerStatus: LayerKey | null = lead ? lead.stage : savedIds.has(business.id) ? "saved" : null;
         return { business, layerStatus };
       })
-      .filter(({ layerStatus }) => (layerStatus ? activeLayers.has(layerStatus) : activeLayers.has("results")));
-  }, [advancedResults, businessIds, leadsByBusinessId, savedIds, activeLayers, showAdvancedPins]);
+      .filter(({ layerStatus }) => (layerStatus ? activeLayers.has(layerStatus) : activeLayers.has("results")))
+      .filter(({ business }) => {
+        const codes = advancedResultCodes.get(business.id);
+        if (!codes) return true;
+        return Array.from(codes).some((c) => activeAdvancedCodes.has(c));
+      });
+  }, [
+    advancedResults,
+    businessIds,
+    leadsByBusinessId,
+    savedIds,
+    activeLayers,
+    showAdvancedPins,
+    advancedResultCodes,
+    activeAdvancedCodes,
+  ]);
 
   // Every business currently eligible for a map pin, combined into one
   // clustered GL source instead of hundreds of individual DOM Markers (the
@@ -303,17 +351,38 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
   // not stalling every request the way firing everything in parallel did
   // for the regular keyword search.
   const runAdvancedSearch = useCallback((codes: string[], entidad: string, municipio: string) => {
-    setAdvancedProgress({ running: true, completed: 0, total: codes.length, found: 0, failed: 0 });
+    setAdvancedProgress({ running: true, completed: 0, total: codes.length, found: 0, failed: 0, currentTitles: [] });
     setProgressCardVisible(true);
+    setAdvancedResultCodes(new Map());
+    setActiveAdvancedCodes(new Set(codes));
+    setAdvancedCodes(codes);
 
     let nextIndex = 0;
     let completed = 0;
     let found = 0;
     let failed = 0;
+    const inFlight = new Set<string>();
+
+    const titlesInFlight = () =>
+      Array.from(inFlight, (code) => SCIAN_TITLE_BY_CODE.get(code) ?? code);
+
+    const recordCodeForBusinesses = (newBusinesses: BusinessRow[], code: string) => {
+      setAdvancedResultCodes((prev) => {
+        const next = new Map(prev);
+        for (const b of newBusinesses) {
+          const set = new Set(next.get(b.id));
+          set.add(code);
+          next.set(b.id, set);
+        }
+        return next;
+      });
+    };
 
     async function worker() {
       while (nextIndex < codes.length) {
         const code = codes[nextIndex++];
+        inFlight.add(code);
+        setAdvancedProgress((prev) => (prev ? { ...prev, currentTitles: titlesInFlight() } : prev));
         try {
           const qs = new URLSearchParams({ code, entidad, municipio });
           const res = await fetch(`/api/denue/search-by-code?${qs}`);
@@ -326,6 +395,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
             for (const b of newBusinesses) merged.set(b.id, b);
             return Array.from(merged.values());
           });
+          recordCodeForBusinesses(newBusinesses, code);
 
           // SIEM has no coordinates but the same scian/estado/municipio
           // scope — dedup against `businesses` (any source) happens
@@ -341,6 +411,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
                 for (const b of siemBusinesses) merged.set(b.id, b);
                 return Array.from(merged.values());
               });
+              recordCodeForBusinesses(siemBusinesses, code);
             }
           } catch (siemErr) {
             console.error(`Error en búsqueda SIEM (código ${code}):`, siemErr);
@@ -350,14 +421,17 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
           console.error(`Error en búsqueda avanzada (código ${code}):`, err);
         } finally {
           completed++;
-          setAdvancedProgress({ running: true, completed, total: codes.length, found, failed });
+          inFlight.delete(code);
+          setAdvancedProgress((prev) =>
+            prev ? { ...prev, completed, found, failed, currentTitles: titlesInFlight() } : prev
+          );
         }
       }
     }
 
     const workerCount = Math.min(ADVANCED_SEARCH_CONCURRENCY, codes.length);
     Promise.all(Array.from({ length: workerCount }, worker)).then(() => {
-      setAdvancedProgress((prev) => (prev ? { ...prev, running: false } : prev));
+      setAdvancedProgress((prev) => (prev ? { ...prev, running: false, currentTitles: [] } : prev));
 
       setAdvancedResults((current) => {
         const withCoords = current.filter(
@@ -765,6 +839,10 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
         activeKeywords={activeKeywords}
         onToggleKeyword={toggleKeyword}
         keywordCounts={keywordCounts}
+        categories={advancedCodes.map((code) => ({ code, title: SCIAN_TITLE_BY_CODE.get(code) ?? code }))}
+        activeCategories={activeAdvancedCodes}
+        onToggleCategory={toggleAdvancedCode}
+        categoryCounts={advancedCodeCounts}
       />
 
       {/* Standalone, precise SCIAN-code search — deliberately separate from
@@ -796,6 +874,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
           found={advancedProgress.found}
           failed={advancedProgress.failed}
           running={advancedProgress.running}
+          currentTitles={advancedProgress.currentTitles}
           onDismiss={() => setProgressCardVisible(false)}
         />
       )}

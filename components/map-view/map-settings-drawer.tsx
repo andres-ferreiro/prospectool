@@ -15,6 +15,11 @@ import {
 
 export type LayerKey = "results" | "saved" | Stage;
 
+interface AdvancedCategory {
+  code: string;
+  title: string;
+}
+
 interface MapSettingsDrawerProps {
   activeLayers: Set<LayerKey>;
   onToggleLayer: (key: LayerKey) => void;
@@ -25,7 +30,19 @@ interface MapSettingsDrawerProps {
   activeKeywords: Set<string>;
   onToggleKeyword: (keyword: string) => void;
   keywordCounts: Map<string, number>;
+  /** SCIAN categories from the most recent advanced search — empty until
+   *  one has run. */
+  categories: AdvancedCategory[];
+  activeCategories: Set<string>;
+  onToggleCategory: (code: string) => void;
+  categoryCounts: Map<string, number>;
 }
+
+// Matches business-map.tsx's ADVANCED_SEARCH_COLOR — the same indigo used
+// for advanced-search pins/toggle (see advanced-search-progress.tsx for
+// the same convention), so category rows read as part of the same visual
+// thread.
+const ADVANCED_SEARCH_COLOR = "#6366f1";
 
 function Row({
   checked,
@@ -72,6 +89,10 @@ export function MapSettingsDrawer({
   activeKeywords,
   onToggleKeyword,
   keywordCounts,
+  categories,
+  activeCategories,
+  onToggleCategory,
+  categoryCounts,
 }: MapSettingsDrawerProps) {
   const [open, setOpen] = useState(false);
   const isDesktop = useIsDesktop();
@@ -135,6 +156,22 @@ export function MapSettingsDrawer({
                     label={keyword}
                     count={keywordCounts.get(keyword) ?? 0}
                     onClick={() => onToggleKeyword(keyword)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {categories.length > 0 && (
+              <div className="flex flex-col gap-1 border-t border-border pt-3">
+                <p className="px-3 text-xs font-medium text-muted-foreground">Categorías (búsqueda avanzada)</p>
+                {categories.map(({ code, title }) => (
+                  <Row
+                    key={code}
+                    checked={activeCategories.has(code)}
+                    color={ADVANCED_SEARCH_COLOR}
+                    label={title}
+                    count={categoryCounts.get(code) ?? 0}
+                    onClick={() => onToggleCategory(code)}
                   />
                 ))}
               </div>

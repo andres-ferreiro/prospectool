@@ -6,6 +6,9 @@ interface AdvancedSearchProgressProps {
   found: number;
   failed: number;
   running: boolean;
+  /** Titles of the categories currently being fetched — shown as "Buscando:
+   *  X, Y" so this reads as active progress, not just a counter. */
+  currentTitles: string[];
   onDismiss: () => void;
 }
 
@@ -29,12 +32,14 @@ export function AdvancedSearchProgress({
   found,
   failed,
   running,
+  currentTitles,
   onDismiss,
 }: AdvancedSearchProgressProps) {
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
   const summary = running
     ? `${completed}/${total} categorías · ${found} encontrados`
     : `Completa · ${found} encontrados${failed > 0 ? ` · ${failed} fallaron` : ""}`;
+  const currentLabel = running && currentTitles.length > 0 ? `Buscando: ${currentTitles.join(", ")}` : null;
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-6">
@@ -48,7 +53,12 @@ export function AdvancedSearchProgress({
           ) : (
             <Telescope className="h-3.5 w-3.5 shrink-0" style={{ color: ACCENT }} />
           )}
-          <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{summary}</p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-medium text-foreground">{summary}</p>
+            {currentLabel && (
+              <p className="truncate text-[11px] text-muted-foreground">{currentLabel}</p>
+            )}
+          </div>
           <button
             type="button"
             onClick={onDismiss}
