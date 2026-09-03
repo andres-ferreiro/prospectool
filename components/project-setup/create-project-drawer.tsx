@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AiDescribeStep } from "./ai-describe-step";
 import { CreateProjectForm } from "./create-project-form";
 import { useIsDesktop } from "@/hooks/use-media-query";
+import { setPendingAiSearch } from "@/lib/pending-ai-search";
 import type { ProjectRow } from "@/lib/db/types";
 
 interface CreateProjectDrawerProps {
@@ -24,10 +25,12 @@ export function CreateProjectDrawer({
   const isDesktop = useIsDesktop();
   const [step, setStep] = useState<"describe" | "form">("describe");
   const [initialKeywords, setInitialKeywords] = useState<string[]>([]);
+  const [initialScianCodes, setInitialScianCodes] = useState<string[]>([]);
 
   const resetSteps = () => {
     setStep("describe");
     setInitialKeywords([]);
+    setInitialScianCodes([]);
   };
 
   const handleOpenChange = (next: boolean) => {
@@ -40,8 +43,9 @@ export function CreateProjectDrawer({
   const body =
     step === "describe" ? (
       <AiDescribeStep
-        onSuggested={(keywords) => {
+        onSuggested={(keywords, scianCodes) => {
           setInitialKeywords(keywords);
+          setInitialScianCodes(scianCodes);
           setStep("form");
         }}
         onSkip={() => setStep("form")}
@@ -50,6 +54,7 @@ export function CreateProjectDrawer({
       <CreateProjectForm
         initialKeywords={initialKeywords}
         onCreated={(project) => {
+          if (initialScianCodes.length > 0) setPendingAiSearch(project.id, initialScianCodes);
           onCreated(project);
           resetSteps();
         }}
