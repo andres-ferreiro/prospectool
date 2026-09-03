@@ -37,6 +37,10 @@ type Status = "idle" | "loading" | "loaded" | "error";
 export interface BusinessMapHandle {
   /** Fly the map to a location and immediately search there. */
   flyToAndSearch: (center: { lat: number; lng: number }) => void;
+  /** Runs the same background category search Advanced Search's drawer
+   *  triggers, for callers (like the AI onboarding flow) that already
+   *  have codes + a location and don't need the drawer's own UI. */
+  runAdvancedSearch: (codes: string[], entidad: string, municipio: string) => void;
 }
 
 interface BusinessMapProps {
@@ -472,6 +476,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
       mapRef.current?.flyTo({ center: [center.lng, center.lat], zoom: 14, duration: 800 });
       runSearch(center, DEFAULT_RADIUS_M);
     },
+    runAdvancedSearch,
   }));
 
   // Reset the "have we auto-searched yet" flag whenever the active project
