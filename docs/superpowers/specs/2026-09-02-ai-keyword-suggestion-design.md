@@ -8,7 +8,7 @@ Today, creating a project ([create-project-form.tsx](../../../components/project
 
 In scope:
 - A new "describe your business" step shown before the existing project-creation form, for **new project creation only**.
-- A server-side endpoint that calls a cheap LLM (GPT-4o-mini) to turn that description into a handful of DENUE-style Spanish keyword phrases.
+- A server-side endpoint that calls a cheap LLM (Gemini Flash) to turn that description into a handful of DENUE-style Spanish keyword phrases.
 - Server-side validation of the model's suggestions against the existing SCIAN catalog before they're shown to the user, to filter out hallucinated categories.
 - Graceful fallback to the existing manual keyword picker on any failure.
 - Available to all users, including those on a free trial (this is a low-cost activation/conversion feature, not a premium perk).
@@ -39,7 +39,7 @@ New route: `app/api/ai/suggest-keywords/route.ts`
 
 - **Auth**: gated by `requireUser()` (same pattern as [lib/db/projects.ts](../../../lib/db/projects.ts)). This must never be reachable anonymously — it triggers a real, billed external API call, so an unauthenticated endpoint would be a cost-abuse vector even though per-call cost is very low.
 - **Request body**: `{ productService: string, targetAudience: string }`.
-- **Model call**: GPT-4o-mini, given a system prompt that:
+- **Model call**: Gemini Flash (via `GEMINI_API_KEY`, using its structured/JSON output mode), given a system prompt that:
   - Includes ~15–20 example category names drawn from `QUICK_PICK_KEYWORDS` as style anchors (not the full 6,530-row catalog — too many tokens for the value it adds).
   - Asks for a JSON array of 3–6 short Spanish business-category phrases in DENUE/SCIAN vocabulary style, biased toward the described target audience (e.g. B2B/professional-services phrasing vs. consumer-retail phrasing).
 - **Validation**: before returning results to the client, normalize and fuzzy-match each suggested phrase against `SCIAN_CATALOG` titles ([lib/scian/catalog.ts](../../../lib/scian/catalog.ts)). Phrases with no reasonable match are dropped — this is the guard against the model hallucinating a category that would return zero DENUE results. This matching function is pure (no I/O) and unit-testable independently of the network call.
@@ -59,4 +59,4 @@ No server-side retry loop — a single attempt per user action keeps cost and la
 
 ## Cost note
 
-At roughly one call per project creation (not per search), and GPT-4o-mini's per-token pricing, expected cost is a small fraction of a cent per project — negligible relative to the 49/399 MXN pricing being planned, and does not justify a separate pricing tier.
+At roughly one call per project creation (not per search), this comfortably fits within Gemini Flash's free tier at early-stage volume — effectively $0 cost. Even past the free tier, Flash's per-token pricing keeps this at a small fraction of a cent per project, negligible relative to the 49/399 MXN pricing being planned and not justifying a separate pricing tier.
