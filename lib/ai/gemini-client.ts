@@ -97,7 +97,16 @@ export async function suggestSearchTargetsFromGemini(
         signal: controller.signal,
         body: JSON.stringify({
           contents: [{ parts: [{ text: buildPrompt(input) }] }],
-          generationConfig: { responseMimeType: "application/json" },
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: "object",
+              properties: {
+                keywords: { type: "array", items: { type: "string" } },
+                scianCodes: { type: "array", items: { type: "string" } },
+              },
+            },
+          },
         }),
       }
     );
