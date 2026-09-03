@@ -39,7 +39,7 @@ interface MapSettingsDrawerProps {
 }
 
 // Matches business-map.tsx's ADVANCED_SEARCH_COLOR — the same indigo used
-// for advanced-search pins/toggle (see advanced-search-progress.tsx for
+// for advanced-search pins/toggle (see search-progress-overlay.tsx for
 // the same convention), so category rows read as part of the same visual
 // thread.
 const ADVANCED_SEARCH_COLOR = "#6366f1";

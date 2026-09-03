@@ -166,4 +166,28 @@ html {
     box-shadow: 0 0 0px 1000px var(--background) inset;
     transition: background-color 9999s ease-in-out 0s;
   }
+
+  /* "Thinking" shimmer for AI/search-in-progress copy — a soft gradient
+     sweep across the text itself, rather than a spinner alone. */
+  @keyframes shimmer-sweep {
+    from {
+      background-position: 150% 0;
+    }
+    to {
+      background-position: -50% 0;
+    }
+  }
+  .shimmer-text {
+    background-image: linear-gradient(
+      90deg,
+      var(--color-foreground) 40%,
+      color-mix(in oklab, var(--color-foreground) 35%, transparent) 50%,
+      var(--color-foreground) 60%
+    );
+    background-size: 250% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: shimmer-sweep 2.2s linear infinite;
+  }
 }

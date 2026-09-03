@@ -53,6 +53,7 @@ export function CreateProjectDrawer({
     ) : (
       <CreateProjectForm
         initialKeywords={initialKeywords}
+        initialScianCodes={initialScianCodes}
         onCreated={(project) => {
           if (initialScianCodes.length > 0) setPendingAiSearch(project.id, initialScianCodes);
           onCreated(project);
@@ -64,11 +65,14 @@ export function CreateProjectDrawer({
   // Desktop gets a centered modal (a short, focused form doesn't need a
   // side-panel's persistent screen-edge anchoring); mobile keeps the
   // bottom-sheet drawer, where a modal would fight the platform's native
-  // sheet conventions.
+  // sheet conventions. The "form" step goes wider than the default modal
+  // width — with the full quick-pick grid (and, once AI-assisted, a second
+  // column of suggested categories) a narrow modal forces an unnecessarily
+  // tall scroll; a wider one fits the same content in far fewer rows.
   if (isDesktop) {
     return (
       <Dialog open={open} onOpenChange={handleOpenChange} disablePointerDismissal={!dismissible}>
-        <DialogContent>
+        <DialogContent className={step === "form" ? "max-w-2xl" : undefined}>
           <DialogHeader>
             <DialogTitle>Nuevo proyecto</DialogTitle>
           </DialogHeader>

@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
-import { Eye, EyeOff, Loader2, Telescope, X } from "lucide-react";
+import { Eye, EyeOff, Telescope, X } from "lucide-react";
 import MapGL, { Layer, Marker, Source, type MapRef } from "react-map-gl/mapbox";
 import type { GeoJSONSource, MapMouseEvent } from "mapbox-gl";
 import type { Feature, FeatureCollection, Point } from "geojson";
@@ -25,7 +25,7 @@ import { ResultsDrawer } from "./results-drawer";
 import { ResultsToggle } from "./results-toggle";
 import { MapSettingsDrawer, type LayerKey } from "./map-settings-drawer";
 import { AdvancedSearchDrawer } from "./advanced-search-drawer";
-import { AdvancedSearchProgress } from "./advanced-search-progress";
+import { SearchProgressOverlay } from "./search-progress-overlay";
 import { useCurrentLocation } from "@/hooks/use-current-location";
 import { readCachedSearch, writeCachedSearch } from "@/lib/search-cache";
 import { hasSeenMapControlsHint, markMapControlsHintSeen } from "@/lib/onboarding";
@@ -867,41 +867,14 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
         onSubmit={runAdvancedSearch}
       />
 
-      {advancedProgress && progressCardVisible && (
-        <AdvancedSearchProgress
-          completed={advancedProgress.completed}
-          total={advancedProgress.total}
-          found={advancedProgress.found}
-          failed={advancedProgress.failed}
-          running={advancedProgress.running}
-          currentTitles={advancedProgress.currentTitles}
-          onDismiss={() => setProgressCardVisible(false)}
-        />
-      )}
-      {/* Collapsed form of the card above — dismissing it never discards
-          advancedProgress, so a still-running background search always has
-          a way back to its status instead of just disappearing. */}
-      {advancedProgress && !progressCardVisible && (
-        <button
-          type="button"
-          onClick={() => setProgressCardVisible(true)}
-          className="absolute top-20 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-white shadow-soft"
-          style={{ backgroundColor: ADVANCED_SEARCH_COLOR }}
-        >
-          {advancedProgress.running ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Telescope className="h-3 w-3" />
-          )}
-          {advancedProgress.running
-            ? `${advancedProgress.completed}/${advancedProgress.total}`
-            : `${advancedProgress.found} encontrados`}
-        </button>
-      )}
+      <SearchProgressOverlay
+        keywordLoading={!!project && !showSearchArea && status === "loading"}
+        advanced={advancedProgress}
+        collapsed={!progressCardVisible}
+        onDismiss={() => setProgressCardVisible(false)}
+        onExpand={() => setProgressCardVisible(true)}
+      />
 
-      {project && !showSearchArea && status === "loading" && (
-        <MapStateBanner>Buscando negocios cerca de ti…</MapStateBanner>
-      )}
       {project && !showSearchArea && status === "loaded" && businesses.length === 0 && (
         <MapStateBanner>
           <div className="flex flex-col items-center gap-2 text-center">
