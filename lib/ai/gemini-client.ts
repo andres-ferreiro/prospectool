@@ -1,6 +1,8 @@
 import { QUICK_PICK_KEYWORDS } from "@/lib/scian/quick-picks";
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+// "-latest" alias rather than a dated model id, so this keeps working as
+// Google retires/renames specific model versions over time.
+const GEMINI_MODEL = "gemini-flash-latest";
 const GEMINI_TIMEOUT_MS = 8000;
 // Anchors the model's output style without spending tokens on the full
 // 6,530-row catalog — a handful of examples is enough to convey "short

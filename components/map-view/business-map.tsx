@@ -685,21 +685,23 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
       </MapGL>
 
       {showMapControlsHint && (
-        <div className="absolute inset-x-4 top-16 z-20 flex items-start gap-2.5 rounded-xl bg-popover/95 p-3 text-sm shadow-soft backdrop-blur">
-          <Telescope className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <p className="min-w-0 flex-1 text-foreground/80">
-            <strong className="text-foreground">Búsqueda avanzada</strong> busca por categoría exacta (SCIAN) en
-            vez de por palabra clave. El ícono del ojo muestra u oculta esos resultados en el mapa sin
-            perderlos.
-          </p>
-          <button
-            type="button"
-            onClick={dismissMapControlsHint}
-            aria-label="Entendido, no volver a mostrar"
-            className="shrink-0 text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-6">
+          <div className="pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-2xl bg-popover/95 pt-14 pb-3 px-3 text-sm shadow-soft backdrop-blur-xl">
+            <Telescope className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <p className="min-w-0 flex-1 text-foreground/80">
+              <strong className="text-foreground">Búsqueda avanzada</strong> busca por categoría exacta (SCIAN) en
+              vez de por palabra clave. El ícono del ojo muestra u oculta esos resultados en el mapa sin
+              perderlos.
+            </p>
+            <button
+              type="button"
+              onClick={dismissMapControlsHint}
+              aria-label="Entendido, no volver a mostrar"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 
