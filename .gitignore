@@ -32,6 +32,17 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.local.example
+
+# Claude Code local-only settings and worktrees
+.claude/settings.local.json
+.claude/worktrees/
+
+# Supabase CLI local state
+supabase/.temp/
+
+# Local design-critique tool output
+.impeccable/
 
 # vercel
 .vercel
