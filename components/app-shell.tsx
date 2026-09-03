@@ -8,8 +8,10 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { LocationSearchBar } from "@/components/layout/location-search-bar";
 import { CreateProjectDrawer } from "@/components/project-setup/create-project-drawer";
 import { EditProjectDrawer } from "@/components/project-setup/edit-project-drawer";
+import { LocationStepOverlay } from "@/components/onboarding/location-step-overlay";
 import { useUser } from "@/hooks/use-user";
 import { toast } from "@/lib/toast";
+import { takePendingAiSearch } from "@/lib/pending-ai-search";
 import type { BusinessRow, LeadRow, LeadWithBusiness, ProjectRow, SavedBusinessWithBusiness } from "@/lib/db/types";
 
 interface AppShellProps {
@@ -26,6 +28,7 @@ export function AppShell({ initialProjects, activeProject }: AppShellProps) {
   const [editDrawerOpen, setEditDrawerOpen] = useState(false);
   const [leads, setLeads] = useState<LeadWithBusiness[]>([]);
   const [savedBusinesses, setSavedBusinesses] = useState<SavedBusinessWithBusiness[]>([]);
+  const [pendingAiCodes, setPendingAiCodes] = useState<string[] | null>(null);
 
   // Reset before loading, so switching projects doesn't briefly show the
   // previous project's CRM state (mirrors the reset pattern in business-map.tsx).
@@ -66,6 +69,17 @@ export function AppShell({ initialProjects, activeProject }: AppShellProps) {
     return () => {
       cancelled = true;
     };
+  }, [activeProject]);
+
+  // One-shot: if this project was just created via the AI flow with usable
+  // SCIAN codes, they were stashed in sessionStorage before the redirect
+  // that brought us here (see lib/pending-ai-search.ts) — surface the
+  // location step to act on them. Reading also clears the entry, so this
+  // never re-fires on a later revisit to the same project.
+  useEffect(() => {
+    if (!activeProject) return;
+    const codes = takePendingAiSearch(activeProject.id);
+    if (codes.length > 0) setPendingAiCodes(codes);
   }, [activeProject]);
 
   const handleCreated = (project: ProjectRow) => {
@@ -121,6 +135,13 @@ export function AppShell({ initialProjects, activeProject }: AppShellProps) {
     setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
   };
 
+  const handleLocationResolved = (entidad: string, municipio: string) => {
+    if (pendingAiCodes) mapRef.current?.runAdvancedSearch(pendingAiCodes, entidad, municipio);
+    setPendingAiCodes(null);
+  };
+
+  const handleLocationSkip = () => setPendingAiCodes(null);
+
   return (
     <div className="relative h-dvh w-full overflow-hidden">
       <BusinessMap
@@ -163,6 +184,12 @@ export function AppShell({ initialProjects, activeProject }: AppShellProps) {
         project={activeProject}
         onClose={() => setEditDrawerOpen(false)}
         onSaved={handleSaved}
+      />
+
+      <LocationStepOverlay
+        open={pendingAiCodes !== null}
+        onResolved={handleLocationResolved}
+        onSkip={handleLocationSkip}
       />
 
       {activeProject && !drawerOpen && <BottomNav projectId={activeProject.id} active="map" />}
