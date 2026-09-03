@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase/current-user";
-import { suggestKeywordsFromGemini } from "@/lib/ai/gemini-client";
+import { suggestSearchTargetsFromGemini } from "@/lib/ai/gemini-client";
 import { matchSuggestedKeywords } from "@/lib/scian/match-keywords";
+import { matchSuggestedScianCodes } from "@/lib/scian/match-scian-codes";
 
 export async function POST(request: Request) {
   await requireUser();
@@ -17,9 +18,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const suggested = await suggestKeywordsFromGemini({ productService, targetAudience });
-    const keywords = matchSuggestedKeywords(suggested);
-    return Response.json({ keywords });
+    const suggestions = await suggestSearchTargetsFromGemini({ productService, targetAudience });
+    const keywords = matchSuggestedKeywords(suggestions.keywords);
+    const scianCodes = matchSuggestedScianCodes(suggestions.scianCodes);
+    return Response.json({ keywords, scianCodes });
   } catch (err) {
     console.error("[suggest-keywords]", err);
     return Response.json({ error: "No se pudieron sugerir categorías" }, { status: 502 });
