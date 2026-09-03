@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     const keywords = matchSuggestedKeywords(suggested);
     return Response.json({ keywords });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Error inesperado al sugerir categorías";
-    return Response.json({ error: message }, { status: 502 });
+    console.error("[suggest-keywords]", err);
+    return Response.json({ error: "No se pudieron sugerir categorías" }, { status: 502 });
   }
 }
