@@ -6,7 +6,6 @@ import { DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { normalizeSpanish } from "@/lib/scian/groups";
 import type { BusinessRow, LeadRow } from "@/lib/db/types";
 import { BusinessListRow } from "./business-list-row";
@@ -112,25 +111,23 @@ export function BusinessList({
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col p-2">
+        <div className="flex flex-col gap-1.5 p-2">
           {visible.length === 0 && (
             <p className="px-3 py-6 text-center text-sm text-muted-foreground">
               {query ? "Ningún resultado coincide con la búsqueda." : "Ningún resultado coincide con los filtros."}
             </p>
           )}
-          {visible.map((business, i) => (
-            <div key={business.id}>
-              <BusinessListRow
-                business={business}
-                advanced={advancedIds?.has(business.id) ?? false}
-                saved={savedIds.has(business.id)}
-                hasLead={leadsByBusinessId.has(business.id)}
-                onSelect={onSelect}
-                onToggleSave={onToggleSave}
-                onMarkVisited={onMarkVisited}
-              />
-              {i < visible.length - 1 && <Separator className="my-1" />}
-            </div>
+          {visible.map((business) => (
+            <BusinessListRow
+              key={business.id}
+              business={business}
+              advanced={advancedIds?.has(business.id) ?? false}
+              saved={savedIds.has(business.id)}
+              hasLead={leadsByBusinessId.has(business.id)}
+              onSelect={onSelect}
+              onToggleSave={onToggleSave}
+              onMarkVisited={onMarkVisited}
+            />
           ))}
         </div>
       </ScrollArea>
