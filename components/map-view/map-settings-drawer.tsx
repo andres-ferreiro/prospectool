@@ -130,7 +130,7 @@ export function MapSettingsDrawer({
           <DrawerHeader>
             <DrawerTitle>Ajustes del mapa</DrawerTitle>
           </DrawerHeader>
-          <div className="flex flex-col gap-4 p-4 pt-0 pb-6">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-0 pb-6">
             <div className="flex flex-col gap-1">
               <p className="px-3 text-xs font-medium text-muted-foreground">Capas</p>
               {layerRows.map((row) => (
