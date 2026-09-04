@@ -187,7 +187,28 @@ html {
     background-size: 250% 100%;
     -webkit-background-clip: text;
     background-clip: text;
+    /* Safari needs -webkit-text-fill-color explicitly — a bare
+       `color: transparent` next to background-clip:text is inconsistently
+       honored, and without one of these the text just goes invisible. */
+    -webkit-text-fill-color: transparent;
     color: transparent;
     animation: shimmer-sweep 2.2s linear infinite;
+  }
+
+  /* Applied (via a changing `key`, so React remounts the element) each time
+     a cycling status line swaps to the next phrase — "shimmers, then swaps
+     to the next" rather than an abrupt text replacement. */
+  @keyframes status-line-swap-in {
+    from {
+      opacity: 0;
+      transform: translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .status-line-swap {
+    animation: status-line-swap-in 0.25s ease-out;
   }
 }

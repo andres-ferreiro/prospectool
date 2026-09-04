@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 
 interface AiDescribeStepProps {
-  onSuggested: (keywords: string[], scianCodes: string[]) => void;
+  onSuggested: (keywords: string[], scianCodes: string[], projectName: string) => void;
   onSkip: () => void;
 }
 
@@ -34,6 +34,7 @@ export function AiDescribeStep({ onSuggested, onSkip }: AiDescribeStepProps) {
       const data = await res.json();
       const keywords: string[] = Array.isArray(data.keywords) ? data.keywords : [];
       const scianCodes: string[] = Array.isArray(data.scianCodes) ? data.scianCodes : [];
+      const projectName: string = typeof data.projectName === "string" ? data.projectName : "";
 
       if (keywords.length === 0) {
         toast({
@@ -44,7 +45,7 @@ export function AiDescribeStep({ onSuggested, onSkip }: AiDescribeStepProps) {
         return;
       }
 
-      onSuggested(keywords, scianCodes);
+      onSuggested(keywords, scianCodes, projectName);
     } catch {
       toast({
         title: "No se pudo sugerir automáticamente",

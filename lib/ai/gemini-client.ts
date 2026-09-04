@@ -29,7 +29,13 @@ export interface SuggestSearchTargetsInput {
 export interface GeminiSuggestions {
   keywords: string[];
   scianCodes: string[];
+  projectName: string;
 }
+
+// Kept short deliberately — this becomes the project's display name and
+// has to still read cleanly in the project-switcher dropdown, not just in
+// the create form.
+const PROJECT_NAME_MAX_LENGTH = 40;
 
 function buildPrompt({ productService, targetAudience }: SuggestSearchTargetsInput): string {
   return `Eres un asistente que ayuda a negocios en México a identificar qué tipo de negocios buscar como clientes potenciales, usando el catálogo oficial SCIAN (INEGI).
@@ -42,9 +48,10 @@ Ejemplos de categorías de negocio válidas para "keywords": ${PROMPT_EXAMPLES}.
 Producto o servicio del usuario: "${productService}"
 Cliente ideal del usuario: "${targetAudience}"
 
-Devuelve un objeto JSON con dos campos:
+Devuelve un objeto JSON con tres campos:
 - "keywords": arreglo de 3 a 6 frases cortas en español (mismo estilo que los ejemplos) que el usuario debería buscar como palabra clave libre.
 - "scianCodes": arreglo de 3 a 8 códigos SCIAN de 6 dígitos, elegidos EXCLUSIVAMENTE de los códigos listados arriba, que mejor representen el tipo de negocio de ese cliente ideal.
+- "projectName": un nombre corto (máximo ${PROJECT_NAME_MAX_LENGTH} caracteres) para este proyecto de búsqueda, en español, describiendo a quién busca (ej. "Despachos contables CDMX") — no una oración completa.
 
 Responde SOLO con el objeto JSON, sin texto adicional.`;
 }
@@ -52,6 +59,11 @@ Responde SOLO con el objeto JSON, sin texto adicional.`;
 function extractStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function extractProjectName(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, PROJECT_NAME_MAX_LENGTH);
 }
 
 // Pure — extracts and validates the suggestions object from Gemini's
@@ -76,6 +88,7 @@ export function parseGeminiSuggestions(data: unknown): GeminiSuggestions {
   return {
     keywords: extractStringArray(obj.keywords),
     scianCodes: extractStringArray(obj.scianCodes),
+    projectName: extractProjectName(obj.projectName),
   };
 }
 
@@ -104,6 +117,7 @@ export async function suggestSearchTargetsFromGemini(
               properties: {
                 keywords: { type: "array", items: { type: "string" } },
                 scianCodes: { type: "array", items: { type: "string" } },
+                projectName: { type: "string" },
               },
             },
           },

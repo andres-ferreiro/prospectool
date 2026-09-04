@@ -26,11 +26,13 @@ export function CreateProjectDrawer({
   const [step, setStep] = useState<"describe" | "form">("describe");
   const [initialKeywords, setInitialKeywords] = useState<string[]>([]);
   const [initialScianCodes, setInitialScianCodes] = useState<string[]>([]);
+  const [initialName, setInitialName] = useState("");
 
   const resetSteps = () => {
     setStep("describe");
     setInitialKeywords([]);
     setInitialScianCodes([]);
+    setInitialName("");
   };
 
   const handleOpenChange = (next: boolean) => {
@@ -43,9 +45,10 @@ export function CreateProjectDrawer({
   const body =
     step === "describe" ? (
       <AiDescribeStep
-        onSuggested={(keywords, scianCodes) => {
+        onSuggested={(keywords, scianCodes, projectName) => {
           setInitialKeywords(keywords);
           setInitialScianCodes(scianCodes);
+          setInitialName(projectName);
           setStep("form");
         }}
         onSkip={() => setStep("form")}
@@ -54,6 +57,7 @@ export function CreateProjectDrawer({
       <CreateProjectForm
         initialKeywords={initialKeywords}
         initialScianCodes={initialScianCodes}
+        initialName={initialName}
         onCreated={(project) => {
           if (initialScianCodes.length > 0) setPendingAiSearch(project.id, initialScianCodes);
           onCreated(project);

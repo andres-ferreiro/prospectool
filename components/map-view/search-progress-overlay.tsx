@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Loader2, Sparkles, Telescope, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -7,6 +8,32 @@ import { cn } from "@/lib/utils";
 // for advanced-search pins/toggle (see map-settings-drawer.tsx for the
 // same convention).
 const ACCENT = "#6366f1";
+
+// "Status line shimmers, then swaps to the next" — cycled while the
+// regular search is loading so it reads as ongoing AI-assisted work
+// rather than a single static caption.
+const KEYWORD_STATUS_LINES = [
+  "Buscando negocios cerca de ti…",
+  "Analizando resultados…",
+  "Verificando coincidencias…",
+];
+const STATUS_LINE_INTERVAL_MS = 1800;
+
+function useCyclingStatusLine(active: boolean, lines: string[]): string {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (!active) {
+      setIndex(0);
+      return;
+    }
+    const id = setInterval(() => setIndex((i) => (i + 1) % lines.length), STATUS_LINE_INTERVAL_MS);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  return lines[index];
+}
 
 export interface AdvancedProgressState {
   running: boolean;
@@ -40,6 +67,8 @@ export function SearchProgressOverlay({
   onDismiss,
   onExpand,
 }: SearchProgressOverlayProps) {
+  const keywordStatusLine = useCyclingStatusLine(keywordLoading, KEYWORD_STATUS_LINES);
+
   if (!keywordLoading && !advanced) return null;
 
   if (collapsed && advanced) {
@@ -80,8 +109,8 @@ export function SearchProgressOverlay({
           {keywordLoading && (
             <div className="flex items-center gap-2">
               <Sparkles className="h-3.5 w-3.5 shrink-0" style={{ color: ACCENT }} />
-              <p className="shimmer-text min-w-0 flex-1 truncate text-xs font-medium">
-                Buscando negocios cerca de ti…
+              <p key={keywordStatusLine} className="shimmer-text status-line-swap min-w-0 flex-1 truncate text-xs font-medium">
+                {keywordStatusLine}
               </p>
             </div>
           )}

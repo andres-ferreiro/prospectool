@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     const suggestions = await suggestSearchTargetsFromGemini({ productService, targetAudience });
     const keywords = matchSuggestedKeywords(suggestions.keywords);
     const scianCodes = matchSuggestedScianCodes(suggestions.scianCodes);
-    return Response.json({ keywords, scianCodes });
+    return Response.json({ keywords, scianCodes, projectName: suggestions.projectName });
   } catch (err) {
     console.error("[suggest-keywords]", err);
     return Response.json({ error: "No se pudieron sugerir categorías" }, { status: 502 });
