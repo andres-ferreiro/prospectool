@@ -744,7 +744,15 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
               "text-offset": [0, 1.2],
               "text-anchor": "top",
             }}
-            paint={{ "text-color": resolvedTheme === "dark" ? "#fff" : "#000", "text-halo-color": "#fff", "text-halo-width": 1.5 }}
+            paint={{
+              "text-color": resolvedTheme === "dark" ? "#fff" : "#000",
+              // Halo must contrast against the text itself, not just the
+              // basemap — a white halo on white (dark-mode) text made
+              // labels blur into an unreadable blob instead of standing
+              // out from the map underneath.
+              "text-halo-color": resolvedTheme === "dark" ? "#000" : "#fff",
+              "text-halo-width": 1.5,
+            }}
           />
         </Source>
         {selectedBusiness && selectedBusiness.lat != null && selectedBusiness.lng != null && (
