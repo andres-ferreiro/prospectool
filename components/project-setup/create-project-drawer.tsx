@@ -76,7 +76,7 @@ export function CreateProjectDrawer({
   if (isDesktop) {
     return (
       <Dialog open={open} onOpenChange={handleOpenChange} disablePointerDismissal={!dismissible}>
-        <DialogContent className={step === "form" ? "max-w-2xl" : undefined}>
+        <DialogContent className={step === "form" ? "max-w-3xl" : undefined}>
           <DialogHeader>
             <DialogTitle>Nuevo proyecto</DialogTitle>
           </DialogHeader>

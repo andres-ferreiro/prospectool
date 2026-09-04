@@ -178,11 +178,18 @@ html {
     }
   }
   .shimmer-text {
+    /* Defaults to the app's normal text color; override per usage with an
+       inline `style={{ "--shimmer-base": ... }}` for surfaces where the
+       shimmer sits on something other than a light card (e.g. a solid
+       primary-colored button — see ai-describe-step.tsx). Can't use
+       currentColor here since this rule also sets this element's own
+       `color` to transparent, which currentColor would then resolve to. */
+    --shimmer-base: var(--color-foreground);
     background-image: linear-gradient(
       90deg,
-      var(--color-foreground) 40%,
-      color-mix(in oklab, var(--color-foreground) 35%, transparent) 50%,
-      var(--color-foreground) 60%
+      var(--shimmer-base) 40%,
+      color-mix(in oklab, var(--shimmer-base) 35%, transparent) 50%,
+      var(--shimmer-base) 60%
     );
     background-size: 250% 100%;
     -webkit-background-clip: text;
@@ -211,4 +218,18 @@ html {
   .status-line-swap {
     animation: status-line-swap-in 0.25s ease-out;
   }
+}
+
+/* Approximates shadcn's scroll-fade utility (ui.shadcn.com/docs/utils/
+   scroll-fade): a mask-image that fades a scrollable container's edges to
+   transparent, hinting there's more content to scroll past — used on the
+   keyword/category columns in create-project-form.tsx so a long list reads
+   as "scroll for more" instead of just cutting off abruptly. A static
+   both-edges fade rather than shadcn's scroll-driven version (which tracks
+   scroll position live via `animation-timeline: scroll()`) — simpler and
+   works in every browser, at the cost of always showing a top fade even
+   when already scrolled to the very top. */
+@utility scroll-fade-y {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 24px, black calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, black 24px, black calc(100% - 24px), transparent);
 }

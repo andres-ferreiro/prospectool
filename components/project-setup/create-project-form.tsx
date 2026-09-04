@@ -77,7 +77,7 @@ export function CreateProjectForm({
   // area instead of one long shared scroll — the keyword grid (~50 pills)
   // would otherwise force the whole modal to grow very tall to fit it.
   const categoriesColumn = showCategories && (
-    <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+    <div className="scroll-fade-y max-h-72 space-y-2 overflow-y-auto pr-1">
       <Label className="flex items-center gap-1.5 text-foreground/70">
         <Sparkles className="h-3.5 w-3.5 text-primary" />
         Categorías sugeridas por IA
@@ -101,7 +101,7 @@ export function CreateProjectForm({
         <ProjectNameInput value={name} onChange={setName} />
         {isDesktop ? (
           <div className={showCategories ? "grid grid-cols-2 gap-6" : undefined}>
-            <div className="max-h-64 overflow-y-auto pr-1">
+            <div className="scroll-fade-y max-h-72 overflow-y-auto pr-1">
               <KeywordPicker value={keywords} onChange={setKeywords} />
             </div>
             {categoriesColumn}

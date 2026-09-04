@@ -1,39 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Loader2, Sparkles, Telescope, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useCyclingStatusLine } from "@/hooks/use-cycling-status-line";
 
 // Matches business-map.tsx's ADVANCED_SEARCH_COLOR — the same indigo used
 // for advanced-search pins/toggle (see map-settings-drawer.tsx for the
 // same convention).
 const ACCENT = "#6366f1";
 
-// "Status line shimmers, then swaps to the next" — cycled while the
-// regular search is loading so it reads as ongoing AI-assisted work
-// rather than a single static caption.
+// Cycled while the regular search is loading so it reads as ongoing
+// AI-assisted work rather than a single static caption.
 const KEYWORD_STATUS_LINES = [
   "Buscando negocios cerca de ti…",
   "Analizando resultados…",
   "Verificando coincidencias…",
 ];
-const STATUS_LINE_INTERVAL_MS = 1800;
-
-function useCyclingStatusLine(active: boolean, lines: string[]): string {
-  const [index, setIndex] = useState(0);
-
-  useEffect(() => {
-    if (!active) {
-      setIndex(0);
-      return;
-    }
-    const id = setInterval(() => setIndex((i) => (i + 1) % lines.length), STATUS_LINE_INTERVAL_MS);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
-
-  return lines[index];
-}
 
 export interface AdvancedProgressState {
   running: boolean;
