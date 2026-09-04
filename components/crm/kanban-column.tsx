@@ -14,7 +14,7 @@ export function KanbanColumn({ stage, leads, onOpen }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
 
   return (
-    <div className="flex w-72 shrink-0 flex-col rounded-xl border border-border bg-sheet">
+    <div className="flex w-72 shrink-0 flex-col rounded-xl border border-border bg-card">
       <div className="flex items-center gap-2 border-b border-border p-3">
         <span
           className="h-2.5 w-2.5 shrink-0 rounded-full"
