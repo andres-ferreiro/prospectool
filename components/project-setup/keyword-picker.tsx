@@ -8,13 +8,19 @@ import { QUICK_PICK_KEYWORDS } from "@/lib/scian/quick-picks";
 interface KeywordPickerProps {
   value: string[];
   onChange: (value: string[]) => void;
+  /** Skip the built-in "¿Qué tipo de negocios buscas?" label — for layouts
+   *  that render it themselves outside this component's own scroll
+   *  container (see create-project-form.tsx's desktop two-column layout,
+   *  where the label needs to stay fixed above a scroll-fade-masked area
+   *  rather than scrolling/fading away with the pills). */
+  hideLabel?: boolean;
 }
 
 // Tap-to-select pills for the niches most people are looking for, so
 // picking "restaurantes" never requires typing. Precision beyond these
 // (an exact SCIAN code) is Advanced Search's job (see
 // advanced-search-drawer.tsx) — deliberately not duplicated here.
-export function KeywordPicker({ value, onChange }: KeywordPickerProps) {
+export function KeywordPicker({ value, onChange, hideLabel = false }: KeywordPickerProps) {
   const togglePick = (term: string) => {
     if (value.includes(term)) onChange(value.filter((v) => v !== term));
     else onChange([...value, term]);
@@ -30,7 +36,7 @@ export function KeywordPicker({ value, onChange }: KeywordPickerProps) {
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <Label className="text-foreground/70">¿Qué tipo de negocios buscas?</Label>
+        {!hideLabel && <Label className="text-foreground/70">¿Qué tipo de negocios buscas?</Label>}
         <div className="flex flex-wrap gap-2">
           {QUICK_PICK_KEYWORDS.map((term) => {
             const selected = value.includes(term);

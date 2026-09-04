@@ -75,23 +75,27 @@ export function CreateProjectForm({
 
   // On desktop, each column gets its own bounded, independently scrollable
   // area instead of one long shared scroll — the keyword grid (~50 pills)
-  // would otherwise force the whole modal to grow very tall to fit it.
+  // would otherwise force the whole modal to grow very tall to fit it. The
+  // column heading stays outside that scrollable/fade-masked area so it's
+  // always fully visible, not fading in and out with the content.
   const categoriesColumn = showCategories && (
-    <div className="scroll-fade-y max-h-72 space-y-2 overflow-y-auto pr-1">
-      <Label className="flex items-center gap-1.5 text-foreground/70">
+    <div className="flex min-h-0 flex-col gap-2">
+      <Label className="flex shrink-0 items-center gap-1.5 text-foreground/70">
         <Sparkles className="h-3.5 w-3.5 text-primary" />
         Categorías sugeridas por IA
       </Label>
-      <div className="flex flex-wrap gap-1.5">
-        {initialScianCodes.map((code) => (
-          <span key={code} className="rounded-full bg-secondary px-2.5 py-1 text-sm text-secondary-foreground">
-            {SCIAN_TITLE_BY_CODE.get(code) ?? code}
-          </span>
-        ))}
+      <div className="scroll-fade-y max-h-64 space-y-2 overflow-y-auto pr-1">
+        <div className="flex flex-wrap gap-1.5">
+          {initialScianCodes.map((code) => (
+            <span key={code} className="rounded-full bg-secondary px-2.5 py-1 text-sm text-secondary-foreground">
+              {SCIAN_TITLE_BY_CODE.get(code) ?? code}
+            </span>
+          ))}
+        </div>
+        <p className="text-xs text-foreground/40">
+          Las buscaremos automáticamente en cuanto compartas tu ubicación.
+        </p>
       </div>
-      <p className="text-xs text-foreground/40">
-        Las buscaremos automáticamente en cuanto compartas tu ubicación.
-      </p>
     </div>
   );
 
@@ -101,8 +105,11 @@ export function CreateProjectForm({
         <ProjectNameInput value={name} onChange={setName} />
         {isDesktop ? (
           <div className={showCategories ? "grid grid-cols-2 gap-6" : undefined}>
-            <div className="scroll-fade-y max-h-72 overflow-y-auto pr-1">
-              <KeywordPicker value={keywords} onChange={setKeywords} />
+            <div className="flex min-h-0 flex-col gap-2">
+              <Label className="shrink-0 text-foreground/70">¿Qué tipo de negocios buscas?</Label>
+              <div className="scroll-fade-y max-h-64 overflow-y-auto pr-1">
+                <KeywordPicker value={keywords} onChange={setKeywords} hideLabel />
+              </div>
             </div>
             {categoriesColumn}
           </div>

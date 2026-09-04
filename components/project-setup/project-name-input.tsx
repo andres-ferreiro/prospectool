@@ -21,7 +21,6 @@ export function ProjectNameInput({ value, onChange }: ProjectNameInputProps) {
         onChange={(e) => onChange(e.target.value)}
         className="h-11 rounded-xl border-0 px-4 shadow-sm"
       />
-      <p className="text-xs text-foreground/40">Así lo verás en el selector de proyectos.</p>
     </div>
   );
 }
