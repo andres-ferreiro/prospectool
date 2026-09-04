@@ -132,7 +132,7 @@ export function AdvancedSearchDrawer({ open, onOpenChange, mapCenter, onSubmit }
       showSwipeHandle={!isDesktop}
       swipeDirection={isDesktop ? "right" : "down"}
     >
-      <DrawerContent floating={isDesktop} className="bg-sheet">
+      <DrawerContent floating={isDesktop}>
         <DrawerHeader>
           <DrawerTitle>Búsqueda avanzada</DrawerTitle>
         </DrawerHeader>

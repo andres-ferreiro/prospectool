@@ -34,7 +34,7 @@ export function EditProjectDrawer({ open, project, onClose, onSaved }: EditProje
 
   return (
     <Drawer open={open} onOpenChange={handleOpenChange} showSwipeHandle>
-      <DrawerContent className="bg-sheet">
+      <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>Editar proyecto</DrawerTitle>
         </DrawerHeader>

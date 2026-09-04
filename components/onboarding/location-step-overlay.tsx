@@ -145,7 +145,7 @@ export function LocationStepOverlay({ open, onResolved, onSkip }: LocationStepOv
 
   return (
     <Drawer open={open} onOpenChange={handleOpenChange} showSwipeHandle>
-      <DrawerContent className="bg-sheet">
+      <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{title}</DrawerTitle>
         </DrawerHeader>

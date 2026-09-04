@@ -93,7 +93,7 @@ export function CreateProjectDrawer({
       disablePointerDismissal={!dismissible}
       showSwipeHandle={dismissible}
     >
-      <DrawerContent className="bg-sheet">
+      <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>Nuevo proyecto</DrawerTitle>
         </DrawerHeader>
