@@ -34,7 +34,7 @@ export function CrmPage({ projects, activeProject, initialLeads }: CrmPageProps)
         user={user}
       />
 
-      <main className={isDesktop ? "px-4 pt-20" : "mx-auto max-w-2xl px-4 pt-20"}>
+      <main className={isDesktop ? "mx-auto max-w-screen-2xl px-6 pt-20" : "mx-auto max-w-2xl px-4 pt-20"}>
         {isDesktop ? <KanbanBoard initialLeads={initialLeads} /> : <CrmBoard initialLeads={initialLeads} />}
       </main>
 

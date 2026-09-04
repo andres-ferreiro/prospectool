@@ -75,13 +75,13 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
 
   return (
     <>
-      <div className="relative mb-3">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <div className="relative mb-4">
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Buscar por nombre..."
-          className="h-10 pl-9"
+          className="h-11 rounded-xl border-0 pl-11 shadow-sm"
         />
       </div>
 
