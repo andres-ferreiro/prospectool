@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/current-user";
-import { getStripe, PRICE_IDS } from "@/lib/billing/stripe";
+import { assertBillingEnv, getStripe, PRICE_IDS } from "@/lib/billing/stripe";
 import { ensureStripeCustomer, getSubscriptionState } from "@/lib/billing/subscription-status";
 import type { BillingPlan } from "@/lib/db/types";
 
@@ -19,6 +19,13 @@ export async function POST(request: Request) {
   const subscription = await getSubscriptionState();
   if (subscription.isPaid) {
     return Response.json({ error: "Ya tienes una suscripción activa" }, { status: 409 });
+  }
+
+  try {
+    assertBillingEnv();
+  } catch (err) {
+    console.error("[billing/checkout] configuración incompleta", err);
+    return Response.json({ error: "El pago no está configurado correctamente." }, { status: 500 });
   }
 
   const stripe = getStripe();
@@ -66,8 +73,20 @@ export async function POST(request: Request) {
     return Response.json({ url: session.url });
   } catch (err) {
     // Never forward the raw Stripe error to the client — it can include
-    // request internals not meant to leave the server.
-    console.error("[billing/checkout]", err);
-    return Response.json({ error: "No se pudo iniciar el pago" }, { status: 502 });
+    // request internals not meant to leave the server. The `code` and `type`
+    // fields are safe, though, and are the difference between a diagnosable
+    // failure and a blank 502: `resource_missing` on a live-mode cutover means
+    // a price/coupon/customer id still points at test mode.
+    const stripeErr = err as { type?: string; code?: string; param?: string; message?: string };
+    console.error("[billing/checkout]", {
+      type: stripeErr.type,
+      code: stripeErr.code,
+      param: stripeErr.param,
+      message: stripeErr.message,
+    });
+    return Response.json(
+      { error: "No se pudo iniciar el pago", code: stripeErr.code ?? stripeErr.type ?? null },
+      { status: 502 }
+    );
   }
 }

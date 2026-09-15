@@ -22,3 +22,22 @@ export const PRICE_IDS = {
   monthly: process.env.STRIPE_PRICE_MONTHLY!,
   yearly: process.env.STRIPE_PRICE_YEARLY!,
 } as const;
+
+// The `!` above is erased at build time and generates no runtime check, so an
+// unset var silently becomes `undefined` and Stripe reports it as a generic
+// parameter error rather than naming the variable. Call this before touching
+// the Stripe API so a misconfigured deploy says which var is missing.
+export function assertBillingEnv(): void {
+  const missing = (
+    [
+      "STRIPE_SECRET_KEY",
+      "STRIPE_PRICE_MONTHLY",
+      "STRIPE_PRICE_YEARLY",
+      "STRIPE_COUPON_FIRST_MONTH",
+    ] as const
+  ).filter((name) => !process.env[name]);
+
+  if (missing.length > 0) {
+    throw new Error(`Faltan variables de entorno de Stripe: ${missing.join(", ")}`);
+  }
+}
