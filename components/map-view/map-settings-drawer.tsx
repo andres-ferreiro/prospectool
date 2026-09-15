@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { Check, SlidersHorizontal } from "lucide-react";
+import { Check } from "lucide-react";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import {
@@ -21,6 +20,8 @@ interface AdvancedCategory {
 }
 
 interface MapSettingsDrawerProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   activeLayers: Set<LayerKey>;
   onToggleLayer: (key: LayerKey) => void;
   resultsCount: number;
@@ -80,6 +81,8 @@ function Row({
 }
 
 export function MapSettingsDrawer({
+  open,
+  onOpenChange,
   activeLayers,
   onToggleLayer,
   resultsCount,
@@ -94,7 +97,6 @@ export function MapSettingsDrawer({
   onToggleCategory,
   categoryCounts,
 }: MapSettingsDrawerProps) {
-  const [open, setOpen] = useState(false);
   const isDesktop = useIsDesktop();
 
   const layerRows: { key: LayerKey; label: string; color: string; count: number }[] = [
@@ -109,76 +111,64 @@ export function MapSettingsDrawer({
   ];
 
   return (
-    <>
-      {/* z-[60]: must outrank the results/detail drawers' z-50. */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label="Ajustes del mapa"
-        className="absolute top-2.5 right-16 z-[60] flex h-9 w-9 items-center justify-center rounded-full bg-popover/95 shadow-soft backdrop-blur transition-colors duration-150 ease-in-out hover:bg-muted"
-      >
-        <SlidersHorizontal className="h-4 w-4 text-primary" />
-      </button>
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      showSwipeHandle={!isDesktop}
+      swipeDirection={isDesktop ? "right" : "down"}
+    >
+      <DrawerContent floating={isDesktop}>
+        <DrawerHeader>
+          <DrawerTitle>Ajustes del mapa</DrawerTitle>
+        </DrawerHeader>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-0 pb-6">
+          <div className="flex flex-col gap-1">
+            <p className="px-3 text-xs font-medium text-muted-foreground">Capas</p>
+            {layerRows.map((row) => (
+              <Row
+                key={row.key}
+                checked={activeLayers.has(row.key)}
+                color={row.color}
+                label={row.label}
+                count={row.count}
+                onClick={() => onToggleLayer(row.key)}
+              />
+            ))}
+          </div>
 
-      <Drawer
-        open={open}
-        onOpenChange={setOpen}
-        showSwipeHandle={!isDesktop}
-        swipeDirection={isDesktop ? "right" : "down"}
-      >
-        <DrawerContent floating={isDesktop}>
-          <DrawerHeader>
-            <DrawerTitle>Ajustes del mapa</DrawerTitle>
-          </DrawerHeader>
-          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-0 pb-6">
-            <div className="flex flex-col gap-1">
-              <p className="px-3 text-xs font-medium text-muted-foreground">Capas</p>
-              {layerRows.map((row) => (
+          {keywords.length > 1 && (
+            <div className="flex flex-col gap-1 border-t border-border pt-3">
+              <p className="px-3 text-xs font-medium text-muted-foreground">Palabras clave</p>
+              {keywords.map((keyword, i) => (
                 <Row
-                  key={row.key}
-                  checked={activeLayers.has(row.key)}
-                  color={row.color}
-                  label={row.label}
-                  count={row.count}
-                  onClick={() => onToggleLayer(row.key)}
+                  key={keyword}
+                  checked={activeKeywords.has(keyword)}
+                  color={keywordColor(i)}
+                  label={keyword}
+                  count={keywordCounts.get(keyword) ?? 0}
+                  onClick={() => onToggleKeyword(keyword)}
                 />
               ))}
             </div>
+          )}
 
-            {keywords.length > 1 && (
-              <div className="flex flex-col gap-1 border-t border-border pt-3">
-                <p className="px-3 text-xs font-medium text-muted-foreground">Palabras clave</p>
-                {keywords.map((keyword, i) => (
-                  <Row
-                    key={keyword}
-                    checked={activeKeywords.has(keyword)}
-                    color={keywordColor(i)}
-                    label={keyword}
-                    count={keywordCounts.get(keyword) ?? 0}
-                    onClick={() => onToggleKeyword(keyword)}
-                  />
-                ))}
-              </div>
-            )}
-
-            {categories.length > 0 && (
-              <div className="flex flex-col gap-1 border-t border-border pt-3">
-                <p className="px-3 text-xs font-medium text-muted-foreground">Categorías (búsqueda avanzada)</p>
-                {categories.map(({ code, title }) => (
-                  <Row
-                    key={code}
-                    checked={activeCategories.has(code)}
-                    color={ADVANCED_SEARCH_COLOR}
-                    label={title}
-                    count={categoryCounts.get(code) ?? 0}
-                    onClick={() => onToggleCategory(code)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        </DrawerContent>
-      </Drawer>
-    </>
+          {categories.length > 0 && (
+            <div className="flex flex-col gap-1 border-t border-border pt-3">
+              <p className="px-3 text-xs font-medium text-muted-foreground">Categorías (búsqueda avanzada)</p>
+              {categories.map(({ code, title }) => (
+                <Row
+                  key={code}
+                  checked={activeCategories.has(code)}
+                  color={ADVANCED_SEARCH_COLOR}
+                  label={title}
+                  count={categoryCounts.get(code) ?? 0}
+                  onClick={() => onToggleCategory(code)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </DrawerContent>
+    </Drawer>
   );
 }

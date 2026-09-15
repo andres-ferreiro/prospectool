@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
-import { Eye, EyeOff, Telescope, X } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, SearchX, SlidersHorizontal, Telescope, X } from "lucide-react";
 import MapGL, { Layer, Marker, Source, type MapRef } from "react-map-gl/mapbox";
 import type { GeoJSONSource, MapMouseEvent } from "mapbox-gl";
 import type { Feature, FeatureCollection, Point } from "geojson";
@@ -15,6 +15,7 @@ import type {
   Stage,
 } from "@/lib/db/types";
 import { STAGES, STAGE_COLORS, SAVED_COLOR } from "@/lib/db/types";
+import type { SiemRow } from "@/lib/siem/types";
 import { Button } from "@/components/ui/button";
 import { BusinessPin } from "./business-pin";
 import { MapStateBanner } from "./map-state-banner";
@@ -27,11 +28,18 @@ import { MapSettingsDrawer, type LayerKey } from "./map-settings-drawer";
 import { AdvancedSearchDrawer } from "./advanced-search-drawer";
 import { SearchProgressOverlay } from "./search-progress-overlay";
 import { useCurrentLocation } from "@/hooks/use-current-location";
-import { readCachedSearch, writeCachedSearch } from "@/lib/search-cache";
+import {
+  readCachedSearch,
+  writeCachedSearch,
+  readCachedAdvancedSearch,
+  writeCachedAdvancedSearch,
+} from "@/lib/search-cache";
 import { hasSeenMapControlsHint, markMapControlsHintSeen } from "@/lib/onboarding";
 import { haversineMeters, radiusFromBounds } from "@/lib/geo";
 import { toast } from "@/lib/toast";
 import { SCIAN_CATALOG } from "@/lib/scian/catalog";
+import { selectUnlockedIds, lockedResultStats } from "@/lib/billing/limits";
+import { openPaywall } from "@/lib/paywall";
 
 type Status = "idle" | "loading" | "loaded" | "error";
 
@@ -48,11 +56,16 @@ interface BusinessMapProps {
   project: ProjectRow | null;
   /** True while another drawer (e.g. project creation) is open. */
   suppressDrawer?: boolean;
+  /** True while the onboarding location step is still pending — holds off
+   *  the automatic search-on-open so it doesn't race the location the user
+   *  is about to pick there. */
+  suppressAutoSearch?: boolean;
   leads: LeadWithBusiness[];
   savedBusinesses: SavedBusinessWithBusiness[];
   onMarkVisited: (business: BusinessRow) => Promise<void>;
   onToggleSave: (business: BusinessRow) => Promise<void>;
   onLeadUpdated: (lead: LeadRow) => void;
+  isPaid: boolean;
 }
 
 const DEFAULT_RADIUS_M = 1500;
@@ -63,11 +76,15 @@ const MOVE_THRESHOLD_M = 250;
 const LABEL_ZOOM_THRESHOLD = 16;
 const INITIAL_ZOOM = 14;
 const ALL_LAYERS: LayerKey[] = ["results", "saved", ...STAGES];
-// How many categories to search at once — cuts wall-clock time roughly
-// proportionally, bounded so a burst of parallel DENUE requests doesn't
-// trigger the same stalling behavior firing everything at once did for the
-// regular keyword search.
-const ADVANCED_SEARCH_CONCURRENCY = 3;
+// How many DENUE requests (keywords or SCIAN categories) to run at once —
+// cuts wall-clock time roughly proportionally, bounded because firing every
+// request at once causes later ones to stall and hit our client timeout
+// even though each succeeds fine on its own. Shared by the regular keyword
+// search and the advanced (SCIAN code) search.
+const SEARCH_CONCURRENCY = 3;
+// How many unlocked, contact-less businesses to warm the SIEM match cache
+// for after a search loads — see the preload effect below.
+const SIEM_PRELOAD_LIMIT = 40;
 // A distinct hue (not used by any CRM stage or the saved/keyword palettes)
 // so advanced-search pins read as a different kind of result at a glance.
 const ADVANCED_SEARCH_COLOR = "#6366f1";
@@ -75,6 +92,10 @@ const ADVANCED_SEARCH_COLOR = "#6366f1";
 // Mapbox paint expressions need a literal color, not a CSS var, since they
 // run on the GPU outside the page's own styling.
 const DEFAULT_PIN_COLOR = "#0a84ff";
+// Free-tier results beyond the visible limit render as this neutral gray
+// instead of their real status color, and never get a name label — see
+// lib/billing/limits.ts's selectUnlockedIds.
+const LOCKED_PIN_COLOR = "#9ca3af";
 const SCIAN_TITLE_BY_CODE = new Map(SCIAN_CATALOG.map((c) => [c.code, c.title]));
 const PINS_SOURCE_ID = "business-pins";
 const CLUSTER_LAYER_ID = "business-clusters";
@@ -85,7 +106,17 @@ function layerColor(status: LayerKey): string {
 }
 
 export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(function BusinessMap(
-  { project, suppressDrawer = false, leads, savedBusinesses, onMarkVisited, onToggleSave, onLeadUpdated },
+  {
+    project,
+    suppressDrawer = false,
+    suppressAutoSearch = false,
+    leads,
+    savedBusinesses,
+    onMarkVisited,
+    onToggleSave,
+    onLeadUpdated,
+    isPaid,
+  },
   ref
 ) {
   const mapRef = useRef<MapRef>(null);
@@ -106,6 +137,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
   };
   const [showSearchArea, setShowSearchArea] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessRow | null>(null);
   const [activeLayers, setActiveLayers] = useState<Set<LayerKey>>(new Set(ALL_LAYERS));
   // Which keyword(s) each search-result business matched — a business found
@@ -144,7 +176,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     found: number;
     failed: number;
     // Titles of the categories currently being fetched (up to
-    // ADVANCED_SEARCH_CONCURRENCY at once) — shown so the progress card
+    // SEARCH_CONCURRENCY at once) — shown so the progress card
     // reads as "looking up X" rather than just a bare counter.
     currentTitles: string[];
   } | null>(null);
@@ -223,6 +255,21 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     }
     return counts;
   }, [advancedResultCodes]);
+
+  // Mirrors runSearch's own writeCachedSearch call, but for the advanced
+  // pool — keeps whatever's arrived so far in sync with storage as results
+  // stream in, not just once the whole batch finishes, so a mid-search
+  // CRM/Map switch doesn't throw away the codes that had already resolved.
+  // Guarded on advancedCodes.length so this never fires (and never writes a
+  // stub entry) before any advanced search has actually been started.
+  useEffect(() => {
+    if (!project || advancedCodes.length === 0) return;
+    writeCachedAdvancedSearch(project.id, {
+      results: advancedResults,
+      resultCodeEntries: Array.from(advancedResultCodes.entries()).map(([id, codes]) => [id, Array.from(codes)]),
+      codes: advancedCodes,
+    });
+  }, [project, advancedResults, advancedResultCodes, advancedCodes]);
 
   const stageCounts = useMemo(() => {
     const counts = new Map<Stage, number>();
@@ -313,23 +360,47 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     return map;
   }, [visibleSearchBusinesses, offSearchCrmBusinesses, advancedResultsForDisplay]);
 
-  const mapPinsGeoJSON = useMemo((): FeatureCollection<Point, { id: string; name: string; color: string }> => {
-    const features: Feature<Point, { id: string; name: string; color: string }>[] = [];
-    const push = (business: BusinessRow, layerStatus: LayerKey | null, isAdvanced: boolean) => {
+  // Free-tier gating: FREE_RESULT_LIMIT search results (normal + advanced
+  // combined — matches allResultsBusinesses below, so "which ones" is
+  // identical between the map and the results list) stay fully visible;
+  // everything else is locked. Which ones stay unlocked favors whichever
+  // actually have an email/phone (see selectUnlockedIds) rather than
+  // whatever happened to come back first, so the free tier is never just
+  // 10 businesses with nothing to contact them by. CRM-status businesses
+  // outside the current search (offSearchCrmBusinesses) are never locked —
+  // those are the user's own existing leads/saved places, not new results.
+  const lockedBusinessIds = useMemo(() => {
+    if (isPaid) return new Set<string>();
+    const merged = new Map(businesses.map((b) => [b.id, b]));
+    for (const b of advancedResults) if (!merged.has(b.id)) merged.set(b.id, b);
+    const unlockedIds = selectUnlockedIds(Array.from(merged.values()), isPaid);
+    return new Set(Array.from(merged.keys()).filter((id) => !unlockedIds.has(id)));
+  }, [businesses, advancedResults, isPaid]);
+
+  const mapPinsGeoJSON = useMemo((): FeatureCollection<Point, { id: string; name: string; color: string; locked: boolean }> => {
+    const features: Feature<Point, { id: string; name: string; color: string; locked: boolean }>[] = [];
+    const push = (business: BusinessRow, layerStatus: LayerKey | null, isAdvanced: boolean, lockable: boolean) => {
       if (business.lat == null || business.lng == null) return;
       if (business.id === selectedBusiness?.id) return;
-      const color = layerStatus ? layerColor(layerStatus) : isAdvanced ? ADVANCED_SEARCH_COLOR : DEFAULT_PIN_COLOR;
+      const locked = lockable && lockedBusinessIds.has(business.id);
+      const color = locked
+        ? LOCKED_PIN_COLOR
+        : layerStatus
+          ? layerColor(layerStatus)
+          : isAdvanced
+            ? ADVANCED_SEARCH_COLOR
+            : DEFAULT_PIN_COLOR;
       features.push({
         type: "Feature",
         geometry: { type: "Point", coordinates: [business.lng, business.lat] },
-        properties: { id: business.id, name: business.name, color },
+        properties: { id: business.id, name: locked ? "" : business.name, color, locked },
       });
     };
-    for (const { business, layerStatus } of visibleSearchBusinesses) push(business, layerStatus, false);
-    for (const { business, layerStatus } of offSearchCrmBusinesses) push(business, layerStatus, false);
-    for (const { business, layerStatus } of advancedResultsForDisplay) push(business, layerStatus, true);
+    for (const { business, layerStatus } of visibleSearchBusinesses) push(business, layerStatus, false, true);
+    for (const { business, layerStatus } of offSearchCrmBusinesses) push(business, layerStatus, false, false);
+    for (const { business, layerStatus } of advancedResultsForDisplay) push(business, layerStatus, true, true);
     return { type: "FeatureCollection", features };
-  }, [visibleSearchBusinesses, offSearchCrmBusinesses, advancedResultsForDisplay, selectedBusiness]);
+  }, [visibleSearchBusinesses, offSearchCrmBusinesses, advancedResultsForDisplay, selectedBusiness, lockedBusinessIds]);
 
   // One shared results drawer for both search kinds — running two separate
   // Drawer instances at once turned out to conflict (Base UI's drawer
@@ -344,6 +415,63 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     return Array.from(merged.values());
   }, [businesses, advancedResults]);
 
+  const lockedStats = useMemo(
+    () => lockedResultStats(allResultsBusinesses, lockedBusinessIds),
+    [allResultsBusinesses, lockedBusinessIds]
+  );
+
+  // Keyed by business id, one promise per business — a Map (not React
+  // state) since it's request-dedup bookkeeping, not something that should
+  // itself trigger a re-render. The SAME promise is handed back to every
+  // caller (the background preload below and BusinessDetail's own
+  // on-demand fetch), so whichever asks first is the only one that ever
+  // hits the network for a given business.
+  const siemMatchCache = useRef(new Map<string, Promise<SiemRow[] | null>>());
+  const fetchSiemMatches = useCallback((businessId: string): Promise<SiemRow[] | null> => {
+    const cache = siemMatchCache.current;
+    let pending = cache.get(businessId);
+    if (!pending) {
+      pending = fetch(`/api/siem/match?businessId=${businessId}`)
+        .then((res) => res.json())
+        .then((data) => (data.matches ?? []) as SiemRow[])
+        .catch(() => null);
+      cache.set(businessId, pending);
+    }
+    return pending;
+  }, []);
+
+  // Warms the cache above right after a search loads, so opening a business
+  // (which asks the same cache) is usually instant instead of waiting on
+  // the match query. Unlocked only — a locked business can't be opened
+  // without paying first, so there's nothing to warm it for yet. Same
+  // bounded pool as the keyword/advanced searches, for the same reason
+  // (DENUE — and by extension this Postgres RPC — stalls under a burst of
+  // simultaneous requests). Capped at SIEM_PRELOAD_LIMIT: the fuzzy-name
+  // branch of the match query isn't a cheap indexed lookup, so a paid
+  // search returning hundreds of contact-less businesses shouldn't turn
+  // into hundreds of those on every visit — clicking into a business past
+  // the cap still resolves, just via BusinessDetail's own on-demand call.
+  useEffect(() => {
+    const eligible = allResultsBusinesses
+      .filter((b) => b.source === "denue" && (!b.phone || !b.email) && !lockedBusinessIds.has(b.id))
+      .slice(0, SIEM_PRELOAD_LIMIT);
+    if (eligible.length === 0) return;
+
+    let cancelled = false;
+    let nextIndex = 0;
+    async function worker() {
+      while (!cancelled && nextIndex < eligible.length) {
+        await fetchSiemMatches(eligible[nextIndex++].id);
+      }
+    }
+    const workerCount = Math.min(SEARCH_CONCURRENCY, eligible.length);
+    Promise.all(Array.from({ length: workerCount }, worker));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [allResultsBusinesses, lockedBusinessIds, fetchSiemMatches]);
+
   // Runs entirely in the background — the drawer that configured this
   // already closed, and the user can keep panning/searching/opening other
   // drawers while it streams results in. A bounded worker pool (not fully
@@ -351,6 +479,10 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
   // not stalling every request the way firing everything in parallel did
   // for the regular keyword search.
   const runAdvancedSearch = useCallback((codes: string[], entidad: string, municipio: string) => {
+    // This is the project's real initial search, run at the location the
+    // user just chose in the onboarding step — mark auto-search done so it
+    // never re-fires afterward at the device's actual location instead.
+    autoSearched.current = true;
     setAdvancedProgress({ running: true, completed: 0, total: codes.length, found: 0, failed: 0, currentTitles: [] });
     setProgressCardVisible(true);
     setAdvancedResultCodes(new Map());
@@ -359,8 +491,14 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
 
     let nextIndex = 0;
     let completed = 0;
-    let found = 0;
     let failed = 0;
+    // A business matching more than one SCIAN category (common — many
+    // businesses fall under several) used to get counted once per category
+    // here, so the progress overlay's "N encontrados" ran well ahead of the
+    // actual unique count shown once results.length is read elsewhere (the
+    // results toggle, the CRM funnel, etc). Tracking by id keeps this
+    // number meaning the same thing everywhere.
+    const foundIds = new Set<string>();
     const inFlight = new Set<string>();
 
     const titlesInFlight = () =>
@@ -389,7 +527,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
           const data = await res.json();
           if (!res.ok) throw new Error(data.error ?? "Error desconocido");
           const newBusinesses = data.businesses as BusinessRow[];
-          found += newBusinesses.length;
+          for (const b of newBusinesses) foundIds.add(b.id);
           setAdvancedResults((prev) => {
             const merged = new Map(prev.map((b) => [b.id, b]));
             for (const b of newBusinesses) merged.set(b.id, b);
@@ -405,7 +543,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
             const siemData = await siemRes.json();
             if (siemRes.ok) {
               const siemBusinesses = siemData.businesses as BusinessRow[];
-              found += siemBusinesses.length;
+              for (const b of siemBusinesses) foundIds.add(b.id);
               setAdvancedResults((prev) => {
                 const merged = new Map(prev.map((b) => [b.id, b]));
                 for (const b of siemBusinesses) merged.set(b.id, b);
@@ -423,13 +561,13 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
           completed++;
           inFlight.delete(code);
           setAdvancedProgress((prev) =>
-            prev ? { ...prev, completed, found, failed, currentTitles: titlesInFlight() } : prev
+            prev ? { ...prev, completed, found: foundIds.size, failed, currentTitles: titlesInFlight() } : prev
           );
         }
       }
     }
 
-    const workerCount = Math.min(ADVANCED_SEARCH_CONCURRENCY, codes.length);
+    const workerCount = Math.min(SEARCH_CONCURRENCY, codes.length);
     Promise.all(Array.from({ length: workerCount }, worker)).then(() => {
       setAdvancedProgress((prev) => (prev ? { ...prev, running: false, currentTitles: [] } : prev));
 
@@ -467,35 +605,45 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
       // A single keyword failing (DENUE timeout, etc.) shouldn't wipe out
       // results that other keywords already found, so each request settles
       // independently instead of one rejection failing the whole batch.
-      // Sequential, not parallel — DENUE is slow/flaky enough that firing
-      // every keyword's request at once causes later ones to stall and hit
-      // our client timeout, even though each succeeds fine on its own.
-      const settled: PromiseSettledResult<BusinessRow[]>[] = [];
-      for (const keyword of project.keywords) {
-        const qs = new URLSearchParams({
-          keyword,
-          lat: String(center.lat),
-          lng: String(center.lng),
-          radiusM: String(Math.round(radiusM)),
-        });
+      // Bounded concurrency (SEARCH_CONCURRENCY at once, same pool as
+      // advanced search) — firing every keyword at once stalls DENUE, but
+      // running them fully sequentially meant one slow/flaky keyword (a
+      // 15s timeout, retried once — up to 30s) blocked every keyword after
+      // it too. Written into fixed slots (not pushed) so workers completing
+      // out of order still land each result at its own keyword's index.
+      const keywords = project.keywords;
+      const settled: PromiseSettledResult<BusinessRow[]>[] = new Array(keywords.length);
+      let nextKeywordIndex = 0;
+      async function keywordWorker() {
+        while (nextKeywordIndex < keywords.length) {
+          const i = nextKeywordIndex++;
+          const qs = new URLSearchParams({
+            keyword: keywords[i],
+            lat: String(center.lat),
+            lng: String(center.lng),
+            radiusM: String(Math.round(radiusM)),
+          });
 
-        // DENUE is flaky enough that a single timeout shouldn't sink an
-        // otherwise-good keyword — retry once before giving up on it.
-        let lastError: unknown;
-        let succeeded = false;
-        for (let attempt = 0; attempt < 2 && !succeeded; attempt++) {
-          try {
-            const res = await fetch(`/api/denue/search?${qs}`);
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error ?? "Error desconocido");
-            settled.push({ status: "fulfilled", value: data.businesses as BusinessRow[] });
-            succeeded = true;
-          } catch (reason) {
-            lastError = reason;
+          // DENUE is flaky enough that a single timeout shouldn't sink an
+          // otherwise-good keyword — retry once before giving up on it.
+          let lastError: unknown;
+          let succeeded = false;
+          for (let attempt = 0; attempt < 2 && !succeeded; attempt++) {
+            try {
+              const res = await fetch(`/api/denue/search?${qs}`);
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error ?? "Error desconocido");
+              settled[i] = { status: "fulfilled", value: data.businesses as BusinessRow[] };
+              succeeded = true;
+            } catch (reason) {
+              lastError = reason;
+            }
           }
+          if (!succeeded) settled[i] = { status: "rejected", reason: lastError };
         }
-        if (!succeeded) settled.push({ status: "rejected", reason: lastError });
       }
+      const keywordWorkerCount = Math.min(SEARCH_CONCURRENCY, project.keywords.length);
+      await Promise.all(Array.from({ length: keywordWorkerCount }, keywordWorker));
 
       const merged = new Map<string, BusinessRow>();
       const keywordMap = new Map<string, Set<string>>();
@@ -547,6 +695,13 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
 
   useImperativeHandle(ref, () => ({
     flyToAndSearch: (center) => {
+      // Free users get one search on the house (whatever the project
+      // auto-searched on open) — jumping to a different location is a
+      // deliberate new search, same gate as "buscar en esta área" below.
+      if (!isPaid && autoSearched.current) {
+        openPaywall("resultados", lockedStats);
+        return;
+      }
       mapRef.current?.flyTo({ center: [center.lng, center.lat], zoom: 14, duration: 800 });
       runSearch(center, DEFAULT_RADIUS_M);
     },
@@ -574,8 +729,16 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
       setActiveKeywords(new Set(project?.keywords ?? []));
       lastSearchCenter.current = cached?.center ?? null;
       // Advanced-search results are tied to whichever project is active
-      // (mark-visited/save attributes to it), so they don't carry over.
-      setAdvancedResults([]);
+      // (mark-visited/save attributes to it), so a *different* project starts
+      // empty — but for the *same* project, rehydrate from its own cache
+      // instead of discarding results the user hasn't asked to redo.
+      const cachedAdvanced = project ? readCachedAdvancedSearch(project.id) : null;
+      setAdvancedResults(cachedAdvanced?.results ?? []);
+      setAdvancedResultCodes(
+        new Map(cachedAdvanced?.resultCodeEntries.map(([id, codes]) => [id, new Set(codes)]) ?? [])
+      );
+      setAdvancedCodes(cachedAdvanced?.codes ?? []);
+      setActiveAdvancedCodes(new Set(cachedAdvanced?.codes ?? []));
       setAdvancedProgress(null);
       setProgressCardVisible(true);
       setShowAdvancedPins(true);
@@ -584,12 +747,15 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
   }, [project]);
 
   // Land on the user's location and search automatically the first time we
-  // have both a project and a resolved location.
+  // have both a project and a resolved location — but not while the
+  // onboarding location step is still pending, since that step is about to
+  // pick the location this search should run at (own choice or GPS) and an
+  // eager search here would just race it at the wrong spot.
   useEffect(() => {
-    if (!project || !resolved || autoSearched.current) return;
+    if (!project || !resolved || autoSearched.current || suppressAutoSearch) return;
     autoSearched.current = true;
     runSearch(location, DEFAULT_RADIUS_M);
-  }, [project, resolved, location, runSearch]);
+  }, [project, resolved, location, runSearch, suppressAutoSearch]);
 
   const handleMoveEnd = () => {
     if (suppressNextMoveEnd.current) {
@@ -603,7 +769,14 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     if (moved > MOVE_THRESHOLD_M) setShowSearchArea(true);
   };
 
+  // Free users get one search on the house (whatever the project
+  // auto-searched on open) — panning to a new area and re-searching is a
+  // deliberate new search, so it's gated the same way flyToAndSearch is.
   const handleSearchThisArea = () => {
+    if (!isPaid && autoSearched.current) {
+      openPaywall("resultados", lockedStats);
+      return;
+    }
     const map = mapRef.current?.getMap();
     if (!map) return;
     const c = map.getCenter();
@@ -612,6 +785,8 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
   };
 
   // Retry with the exact same center/radius — offered on the error banner.
+  // Not gated: recovering the one search a free user already gets, not a
+  // new one.
   const handleRetrySearch = () => {
     if (lastSearchCenter.current) runSearch(lastSearchCenter.current, lastRadius.current);
   };
@@ -650,6 +825,10 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     }
 
     const id = feature.properties?.id as string | undefined;
+    if (id && lockedBusinessIds.has(id)) {
+      openPaywall("resultados", lockedStats);
+      return;
+    }
     const business = id ? businessById.get(id) : undefined;
     if (business) handlePinClick(business);
   };
@@ -793,7 +972,11 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
       )}
 
       {showSearchArea && status !== "loading" && (
-        <SearchAreaButton onClick={handleSearchThisArea} pushedDown={!!advancedProgress} />
+        <SearchAreaButton
+          onClick={handleSearchThisArea}
+          pushedDown={!!advancedProgress}
+          locked={!isPaid && autoSearched.current}
+        />
       )}
 
       {isPrecise && (
@@ -838,6 +1021,8 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
       )}
 
       <MapSettingsDrawer
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
         activeLayers={activeLayers}
         onToggleLayer={toggleLayer}
         resultsCount={businesses.length}
@@ -853,21 +1038,37 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
         categoryCounts={advancedCodeCounts}
       />
 
-      {/* Standalone, precise SCIAN-code search — deliberately separate from
-          the project's keyword/pill search above (own icon, own drawer,
-          own state), never blended into it. */}
-      <button
-        type="button"
-        onClick={() => {
-          const c = mapRef.current?.getMap()?.getCenter();
-          setAdvancedSearchCenter(c ? { lat: c.lat, lng: c.lng } : location);
-          setAdvancedSearchOpen(true);
-        }}
-        aria-label="Búsqueda avanzada"
-        className="absolute top-2.5 right-28 z-[60] flex h-9 w-9 items-center justify-center rounded-full bg-popover/95 shadow-soft backdrop-blur transition-colors duration-150 ease-in-out hover:bg-muted"
-      >
-        <Telescope className="h-4 w-4 text-primary" />
-      </button>
+      {/* One grouped pill instead of two separately-floating circles — same
+          bg/shadow/blur as every other floating map control, but reading as
+          a single toolbar. Positioned to clear TopBar's avatar button
+          (size-8, right-4) with the same margin the old separate buttons
+          left. z-[60]: must outrank the results/detail drawers' z-50. */}
+      <div className="absolute top-2.5 right-16 z-[60] flex items-center gap-0.5 rounded-full bg-popover/95 shadow-soft backdrop-blur">
+        {/* Standalone, precise SCIAN-code search — deliberately separate from
+            the project's keyword/pill search above (own icon, own drawer,
+            own state), never blended into it. */}
+        <button
+          type="button"
+          onClick={() => {
+            const c = mapRef.current?.getMap()?.getCenter();
+            setAdvancedSearchCenter(c ? { lat: c.lat, lng: c.lng } : location);
+            setAdvancedSearchOpen(true);
+          }}
+          aria-label="Búsqueda avanzada"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-primary transition-colors duration-150 ease-in-out hover:bg-muted active:scale-95"
+        >
+          <Telescope className="h-4 w-4" />
+        </button>
+        <span className="h-5 w-px shrink-0 bg-border" aria-hidden />
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          aria-label="Ajustes del mapa"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-primary transition-colors duration-150 ease-in-out hover:bg-muted active:scale-95"
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+        </button>
+      </div>
       <AdvancedSearchDrawer
         open={advancedSearchOpen}
         onOpenChange={setAdvancedSearchOpen}
@@ -886,6 +1087,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
       {project && !showSearchArea && status === "loaded" && businesses.length === 0 && (
         <MapStateBanner>
           <div className="flex flex-col items-center gap-2 text-center">
+            <SearchX className="h-5 w-5 text-muted-foreground" aria-hidden />
             <p>No encontramos negocios para &ldquo;{project.keywords.join(", ")}&rdquo; en esta zona.</p>
             <Button size="sm" variant="secondary" onClick={handleWiderRadiusSearch}>
               Buscar en un radio mayor
@@ -896,6 +1098,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
       {project && !showSearchArea && status === "error" && (
         <MapStateBanner>
           <div className="flex flex-col items-center gap-2 text-center">
+            <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden />
             <p>No se pudieron cargar los negocios.</p>
             <Button size="sm" variant="secondary" onClick={handleRetrySearch}>
               Reintentar
@@ -908,9 +1111,16 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
         <ResultsDrawer
           open={resultsOpen && !suppressDrawer}
           onOpenChange={setResultsOpen}
+          projectId={project.id}
           businesses={allResultsBusinesses}
           selected={selectedBusiness}
-          onSelect={setSelectedBusiness}
+          onSelect={(business) => {
+            if (business && lockedBusinessIds.has(business.id)) {
+              openPaywall("resultados", lockedStats);
+              return;
+            }
+            setSelectedBusiness(business);
+          }}
           userLocation={location}
           leadsByBusinessId={leadsByBusinessId}
           savedIds={savedIds}
@@ -919,6 +1129,8 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
           onLeadUpdated={onLeadUpdated}
           onBusinessUpdated={handleBusinessUpdated}
           advancedIds={advancedIds}
+          lockedIds={lockedBusinessIds}
+          fetchSiemMatches={fetchSiemMatches}
         />
       )}
     </div>

@@ -1,12 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Mail, Phone, Globe, Search, Telescope } from "lucide-react";
+import { Mail, Phone, Globe, Lock, Search, SearchX, Telescope } from "lucide-react";
 import { DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { EmptyState } from "@/components/ui/empty-state";
+import { openPaywall } from "@/lib/paywall";
+import { lockedResultStats } from "@/lib/billing/limits";
 import { normalizeSpanish } from "@/lib/scian/groups";
+import { toTitleCase } from "@/lib/text";
 import type { BusinessRow, LeadRow } from "@/lib/db/types";
 import { BusinessListRow } from "./business-list-row";
 
@@ -20,6 +24,11 @@ export const BUSINESS_FILTERS: { key: FilterKey; label: string; icon: typeof Pho
 
 // Matches business-list-row.tsx's ADVANCED_SEARCH_COLOR.
 const ADVANCED_SEARCH_COLOR = "#6366f1";
+// How many locked results to preview (blurred, faded) before the paywall
+// CTA — enough to look like a real continuing list, not so many that
+// masking them individually (see business-list-row.tsx's old approach)
+// would be needed instead of one gradient.
+const LOCKED_PREVIEW_COUNT = 2;
 
 interface BusinessListProps {
   businesses: BusinessRow[];
@@ -34,6 +43,11 @@ interface BusinessListProps {
    *  list filter to just those, and marks each row so both result sets stay
    *  visually distinguishable even when shown together. */
   advancedIds?: Set<string>;
+  /** Free-tier results beyond the visible limit — excluded from the normal
+   *  row list; a couple are shown faded under a gradient instead, as proof
+   *  more results exist, with an upgrade CTA. See lib/billing/limits.ts's
+   *  selectUnlockedIds. */
+  lockedIds?: Set<string>;
 }
 
 export function BusinessList({
@@ -46,8 +60,10 @@ export function BusinessList({
   onToggleSave,
   onMarkVisited,
   advancedIds,
+  lockedIds,
 }: BusinessListProps) {
   const [query, setQuery] = useState("");
+  const isFiltering = activeFilters.size > 0 || query.trim().length > 0;
 
   const filters = useMemo(
     () =>
@@ -66,6 +82,25 @@ export function BusinessList({
       );
     });
   }, [businesses, activeFilters, advancedIds, query]);
+
+  // Locked results never render as normal rows, filtered or not — only as
+  // the faded preview below, and only against the unfiltered set (a
+  // filtered view showing "12 more" against the wrong denominator would be
+  // confusing, and a locked business's real field values aren't known to
+  // match the filter anyway since that's exactly what's hidden).
+  const unlockedVisible = useMemo(
+    () => visible.filter((b) => !lockedIds?.has(b.id)),
+    [visible, lockedIds]
+  );
+  const lockedPreview = useMemo(() => {
+    if (isFiltering || !lockedIds || lockedIds.size === 0) return [];
+    return businesses.filter((b) => lockedIds.has(b.id)).slice(0, LOCKED_PREVIEW_COUNT);
+  }, [businesses, lockedIds, isFiltering]);
+
+  const stats = useMemo(
+    () => (lockedIds ? lockedResultStats(businesses, lockedIds) : null),
+    [businesses, lockedIds]
+  );
 
   return (
     <>
@@ -112,12 +147,14 @@ export function BusinessList({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-1.5 p-2">
-          {visible.length === 0 && (
-            <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-              {query ? "Ningún resultado coincide con la búsqueda." : "Ningún resultado coincide con los filtros."}
-            </p>
+          {unlockedVisible.length === 0 && lockedPreview.length === 0 && (
+            <EmptyState
+              size="sm"
+              icon={SearchX}
+              title={query ? "Ningún resultado coincide con la búsqueda" : "Ningún resultado coincide con los filtros"}
+            />
           )}
-          {visible.map((business) => (
+          {unlockedVisible.map((business) => (
             <BusinessListRow
               key={business.id}
               business={business}
@@ -129,6 +166,37 @@ export function BusinessList({
               onMarkVisited={onMarkVisited}
             />
           ))}
+
+          {lockedPreview.length > 0 && (
+            <div className="relative mt-1 overflow-hidden rounded-lg">
+              <div aria-hidden className="pointer-events-none flex select-none flex-col gap-1.5 opacity-70 blur-[3px]">
+                {lockedPreview.map((business) => (
+                  <div key={business.id} className="flex items-start gap-2 rounded-lg bg-popover px-2 py-2.5">
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="text-sm font-medium">{toTitleCase(business.name)}</span>
+                      {business.address && (
+                        <span className="text-xs text-muted-foreground">{toTitleCase(business.address)}</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-sheet/80 to-sheet" />
+              <button
+                type="button"
+                onClick={() => openPaywall("resultados", stats)}
+                className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-0.5 pb-3 pt-6"
+              >
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                  <Lock className="h-3.5 w-3.5" aria-hidden />
+                  +{lockedIds?.size ?? 0} {lockedIds?.size === 1 ? "negocio más" : "negocios más"}
+                </span>
+                <span className="text-xs text-muted-foreground underline underline-offset-2">
+                  Desbloquear gratis
+                </span>
+              </button>
+            </div>
+          )}
         </div>
       </ScrollArea>
     </>

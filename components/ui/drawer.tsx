@@ -114,6 +114,8 @@ const FLOATING_CLOSED_TRANSFORM: Record<NonNullable<DrawerPrimitive.Root.Props["
 
 function DrawerContent({
   className,
+  overlayClassName,
+  viewportClassName,
   children,
   style,
   floating = false,
@@ -124,6 +126,8 @@ function DrawerContent({
    * slide) instead of the default edge-flush bottom sheet — used for the
    * desktop left/right side-drawer layout. */
   floating?: boolean
+  overlayClassName?: string
+  viewportClassName?: string
 }) {
   const { hasSnapPoints, modal, showSwipeHandle, swipeDirection } = useDrawer()
   const swipeAxis =
@@ -132,12 +136,18 @@ function DrawerContent({
   return (
     <DrawerPortal data-slot="drawer-portal">
       {modal === true && (
-        <DrawerOverlay data-snap-points={hasSnapPoints ? "" : undefined} />
+        <DrawerOverlay
+          data-snap-points={hasSnapPoints ? "" : undefined}
+          className={overlayClassName}
+        />
       )}
       <DrawerPrimitive.Viewport
         data-slot="drawer-viewport"
         data-modal={modal}
-        className="pointer-events-none fixed inset-0 z-50 select-none data-[modal=true]:pointer-events-auto"
+        className={cn(
+          "pointer-events-none fixed inset-0 z-50 select-none data-[modal=true]:pointer-events-auto",
+          viewportClassName
+        )}
       >
         <DrawerPrimitive.Popup
           data-slot="drawer-popup"

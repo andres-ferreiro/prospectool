@@ -1,5 +1,6 @@
 import { Mail } from "lucide-react";
 import { AuthLayout } from "@/components/auth/auth-layout";
+import { Logo } from "@/components/ui/logo";
 import { SignupForm } from "./signup-form";
 
 export default async function SignupPage({ searchParams }: PageProps<"/signup">) {
@@ -8,6 +9,7 @@ export default async function SignupPage({ searchParams }: PageProps<"/signup">)
 
   return (
     <AuthLayout>
+      <Logo className="mb-8 h-7 w-[125px]" priority />
       {sent ? (
         <div className="flex flex-col items-center gap-3 py-4 text-center">
           <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">

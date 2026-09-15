@@ -11,6 +11,11 @@ export interface AuthActionState {
 export async function signUp(_prevState: AuthActionState, formData: FormData): Promise<AuthActionState> {
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
+  const acceptedTerms = formData.get("acceptTerms") === "on";
+
+  if (!acceptedTerms) {
+    return { error: "Debes aceptar el Aviso de Privacidad y los Términos y Condiciones." };
+  }
 
   if (password.length < 6) {
     return { error: "La contraseña debe tener al menos 6 caracteres." };

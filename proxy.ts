@@ -1,7 +1,24 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/auth/callback"];
+// The Stripe webhook is called by Stripe's servers, not a signed-in browser
+// — it has no cookies to authenticate with, and verifies itself via the
+// request signature instead (see app/api/webhooks/stripe/route.ts).
+const PUBLIC_PATHS = [
+  "/login",
+  "/signup",
+  "/auth/callback",
+  "/api/webhooks/stripe",
+  "/privacidad",
+  "/terminos",
+  // Static PWA assets fetched by the browser/OS outside any page
+  // navigation (service worker registration, install-prompt manifest,
+  // offline fallback) — never gated behind auth, or they 404/redirect to
+  // /login and silently break installability for signed-out visitors.
+  "/sw.js",
+  "/manifest.webmanifest",
+  "/offline.html",
+];
 
 export async function proxy(request: NextRequest) {
   const { response, user } = await updateSession(request);

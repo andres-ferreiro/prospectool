@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { BusinessMap, type BusinessMapHandle } from "@/components/map-view/business-map";
 import { TopBar } from "@/components/layout/top-bar";
 import { BottomNav } from "@/components/layout/bottom-nav";
@@ -9,18 +9,27 @@ import { LocationSearchBar } from "@/components/layout/location-search-bar";
 import { CreateProjectDrawer } from "@/components/project-setup/create-project-drawer";
 import { EditProjectDrawer } from "@/components/project-setup/edit-project-drawer";
 import { LocationStepOverlay } from "@/components/onboarding/location-step-overlay";
+import { PaywallModal } from "@/components/billing/paywall-modal";
+import { UnlockedModal } from "@/components/billing/unlocked-modal";
 import { useUser } from "@/hooks/use-user";
 import { toast } from "@/lib/toast";
 import { takePendingAiSearch } from "@/lib/pending-ai-search";
+import { canCreateProject } from "@/lib/billing/limits";
+import { openPaywall, type PaywallReason } from "@/lib/paywall";
 import type { BusinessRow, LeadRow, LeadWithBusiness, ProjectRow, SavedBusinessWithBusiness } from "@/lib/db/types";
+
+const PAYWALL_REASONS = new Set<string>(["proyecto", "crm", "resultados", "calendario"]);
 
 interface AppShellProps {
   initialProjects: ProjectRow[];
   activeProject: ProjectRow | null;
+  isPaid: boolean;
 }
 
-export function AppShell({ initialProjects, activeProject }: AppShellProps) {
+export function AppShell({ initialProjects, activeProject, isPaid }: AppShellProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const user = useUser();
   const mapRef = useRef<BusinessMapHandle>(null);
   const [projects, setProjects] = useState(initialProjects);
@@ -29,6 +38,7 @@ export function AppShell({ initialProjects, activeProject }: AppShellProps) {
   const [leads, setLeads] = useState<LeadWithBusiness[]>([]);
   const [savedBusinesses, setSavedBusinesses] = useState<SavedBusinessWithBusiness[]>([]);
   const [pendingAiCodes, setPendingAiCodes] = useState<string[] | null>(null);
+  const [showUnlockedModal, setShowUnlockedModal] = useState(false);
 
   // Reset before loading, so switching projects doesn't briefly show the
   // previous project's CRM state (mirrors the reset pattern in business-map.tsx).
@@ -142,26 +152,58 @@ export function AppShell({ initialProjects, activeProject }: AppShellProps) {
 
   const handleLocationSkip = () => setPendingAiCodes(null);
 
+  // The CRM route's server-side gate can't open a client modal directly —
+  // it redirects here with ?paywall=<reason> instead, and this opens the
+  // real modal on arrival, then strips the param so a refresh doesn't
+  // reopen it.
+  useEffect(() => {
+    const reason = searchParams.get("paywall");
+    if (!reason || !PAYWALL_REASONS.has(reason)) return;
+    openPaywall(reason as PaywallReason);
+    router.replace(pathname);
+  }, [searchParams, router, pathname]);
+
+  // Stripe's checkout success_url lands here with ?checkout=exito — a real
+  // browser redirect (not a client-side transition), so by the time this
+  // runs, the server already rendered this page with the fresh isPaid from
+  // Stripe's webhook. That's the point: redirecting straight here instead
+  // of through /precios first is what fixes isPaid staying stale (and
+  // locked results still showing) until a manual refresh.
+  useEffect(() => {
+    if (searchParams.get("checkout") !== "exito") return;
+    setShowUnlockedModal(true);
+    router.replace(pathname);
+  }, [searchParams, router, pathname]);
+
   return (
     <div className="relative h-dvh w-full overflow-hidden">
       <BusinessMap
         ref={mapRef}
         project={activeProject}
         suppressDrawer={drawerOpen}
+        suppressAutoSearch={pendingAiCodes !== null}
         leads={leads}
         savedBusinesses={savedBusinesses}
         onMarkVisited={handleMarkVisited}
         onToggleSave={handleToggleSave}
         onLeadUpdated={handleLeadUpdated}
+        isPaid={isPaid}
       />
 
       <TopBar
         projects={projects}
         activeProject={activeProject}
         onSelectProject={(id) => router.push(`/proyectos/${id}`)}
-        onCreateProject={() => setDrawerOpen(true)}
+        onCreateProject={() => {
+          if (!canCreateProject({ isPaid, projectCount: projects.length })) {
+            openPaywall("proyecto");
+            return;
+          }
+          setDrawerOpen(true);
+        }}
         onEditProject={() => setEditDrawerOpen(true)}
         user={user}
+        isPaid={isPaid}
       />
 
       {!drawerOpen && (
@@ -192,7 +234,10 @@ export function AppShell({ initialProjects, activeProject }: AppShellProps) {
         onSkip={handleLocationSkip}
       />
 
-      {activeProject && !drawerOpen && <BottomNav projectId={activeProject.id} active="map" />}
+      {activeProject && !drawerOpen && <BottomNav projectId={activeProject.id} active="map" isPaid={isPaid} />}
+
+      <PaywallModal />
+      <UnlockedModal open={showUnlockedModal} onClose={() => setShowUnlockedModal(false)} />
     </div>
   );
 }

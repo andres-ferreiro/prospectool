@@ -127,3 +127,58 @@ export interface SavedBusinessRow {
 }
 
 export type SavedBusinessWithBusiness = SavedBusinessRow & { business: BusinessRow };
+
+// Appointments tied to a project and, optionally, a lead and/or business —
+// see supabase/migrations/20260905140000_appointments.sql.
+export const APPOINTMENT_STATUSES = ["scheduled", "completed", "cancelled", "no_show"] as const;
+export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
+
+export const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
+  scheduled: "Programada",
+  completed: "Completada",
+  cancelled: "Cancelada",
+  no_show: "No asistió",
+};
+
+export const APPOINTMENT_STATUS_COLORS: Record<AppointmentStatus, string> = {
+  scheduled: "#3b82f6",
+  completed: "#22c55e",
+  cancelled: "#ef4444",
+  no_show: "#f97316",
+};
+
+export interface AppointmentRow {
+  id: string;
+  user_id: string;
+  project_id: string;
+  lead_id: string | null;
+  business_id: string | null;
+  title: string;
+  notes: string | null;
+  location: string | null;
+  start_at: string;
+  end_at: string;
+  status: AppointmentStatus;
+  created_at: string;
+}
+
+export type AppointmentWithRelations = AppointmentRow & {
+  business: BusinessRow | null;
+  lead: LeadRow | null;
+};
+
+// Billing state, one row per user — see supabase/migrations/20260904190000_billing_subscriptions.sql.
+export type BillingPlan = "monthly" | "yearly";
+
+export interface SubscriptionRow {
+  user_id: string;
+  stripe_customer_id: string;
+  stripe_subscription_id: string | null;
+  plan: BillingPlan | null;
+  status: string;
+  current_period_end: string | null;
+  trial_end: string | null;
+  cancel_at_period_end: boolean;
+  created_at: string;
+  updated_at: string;
+}

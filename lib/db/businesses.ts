@@ -1,9 +1,10 @@
 import { getDb } from "./client";
+import { withJwtSkewRetry } from "@/lib/supabase/query-retry";
 import type { BusinessRow } from "./types";
 
 export async function getBusinessById(id: string): Promise<BusinessRow | null> {
   const db = await getDb();
-  const { data, error } = await db.from("businesses").select().eq("id", id).maybeSingle();
+  const { data, error } = await withJwtSkewRetry(() => db.from("businesses").select().eq("id", id).maybeSingle());
   if (error) throw new Error(error.message);
   return data as BusinessRow | null;
 }
@@ -15,7 +16,9 @@ export async function fillMissingContactInfo(
   fields: { phone?: string | null; email?: string | null }
 ): Promise<BusinessRow> {
   const db = await getDb();
-  const { data, error } = await db.from("businesses").update(fields).eq("id", id).select().single();
+  const { data, error } = await withJwtSkewRetry(() =>
+    db.from("businesses").update(fields).eq("id", id).select().single()
+  );
   if (error) throw new Error(error.message);
   return data as BusinessRow;
 }

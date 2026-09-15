@@ -5,6 +5,8 @@ import {
   ArrowLeft,
   Bookmark,
   BookmarkCheck,
+  CalendarPlus,
+  Clock,
   Globe,
   Loader2,
   Mail,
@@ -25,10 +27,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { AppointmentDrawer } from "@/components/calendar/appointment-drawer";
 import {
   STAGES,
   STAGE_COLORS,
   STAGE_LABELS,
+  type AppointmentRow,
   type BusinessRow,
   type LeadActivityRow,
   type LeadContactRow,
@@ -40,6 +44,7 @@ import { getBusinessMeta } from "@/lib/business-meta";
 import type { SiemRow } from "@/lib/siem/types";
 import { toTitleCase } from "@/lib/text";
 import { toast } from "@/lib/toast";
+import { timeLabel } from "@/lib/calendar/format";
 
 interface LeadDetailContentProps {
   leadId: string;
@@ -128,6 +133,8 @@ export function LeadDetailContent({
   const pendingDeleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [siemMatch, setSiemMatch] = useState<SiemRow | null>(null);
   const [applyingSiemField, setApplyingSiemField] = useState<"phone" | "email" | null>(null);
+  const [nextAppointment, setNextAppointment] = useState<AppointmentRow | null>(null);
+  const [appointmentDrawerTarget, setAppointmentDrawerTarget] = useState<"new" | string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +162,21 @@ export function LeadDetailContent({
     return () => {
       cancelled = true;
       clearTimeout(loadingTimer);
+    };
+  }, [leadId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/leads/${leadId}/next-appointment`)
+      .then((res) => res.json())
+      .then((data: { appointment: AppointmentRow | null }) => {
+        if (!cancelled) setNextAppointment(data.appointment);
+      })
+      .catch(() => {
+        // Best-effort only — the drawer works fine without it.
+      });
+    return () => {
+      cancelled = true;
     };
   }, [leadId]);
 
@@ -540,6 +562,35 @@ export function LeadDetailContent({
             </div>
 
             <div className="flex flex-col gap-2">
+              {nextAppointment ? (
+                <button
+                  type="button"
+                  onClick={() => setAppointmentDrawerTarget(nextAppointment.id)}
+                  className="flex items-center gap-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-3 py-2 text-left text-sm text-primary"
+                >
+                  <CalendarPlus className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 truncate">
+                    Próxima cita: {new Date(nextAppointment.start_at).toLocaleDateString("es-MX", {
+                      day: "numeric",
+                      month: "short",
+                    })}
+                    {" · "}
+                    {timeLabel(new Date(nextAppointment.start_at))} · {nextAppointment.title}
+                  </span>
+                </button>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => setAppointmentDrawerTarget("new")}
+                >
+                  <CalendarPlus className="h-4 w-4" />
+                  Agendar cita
+                </Button>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <Label>Contactos</Label>
                 <Button variant="outline" size="sm" className="gap-1.5" onClick={handleAddContact}>
@@ -549,7 +600,10 @@ export function LeadDetailContent({
               </div>
 
               {contacts.length === 0 && (
-                <p className="text-xs text-muted-foreground">Sin contactos todavía. Agrega a quien hayas hablado.</p>
+                <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
+                  <Users className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  Sin contactos todavía. Agrega a quien hayas hablado.
+                </div>
               )}
 
               {contacts.map((draft) =>
@@ -667,7 +721,10 @@ export function LeadDetailContent({
             <div className="flex flex-col gap-2 border-t border-border pt-4">
               <p className="text-xs font-medium text-muted-foreground">Cronología</p>
               {activities.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Sin actividad todavía.</p>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  Sin actividad todavía.
+                </div>
               ) : (
                 <ul className="flex flex-col gap-2">
                   {activities.map((a) => (
@@ -726,6 +783,23 @@ export function LeadDetailContent({
           Guardar
         </Button>
       </DrawerFooter>
+
+      {lead && (
+        <AppointmentDrawer
+          target={appointmentDrawerTarget}
+          projectId={lead.project_id}
+          defaults={{
+            leadId: lead.id,
+            businessId: lead.business_id,
+            linkedName: business ? toTitleCase(business.name) : null,
+            title: business ? `Llamada con ${toTitleCase(business.name)}` : undefined,
+            location: business?.address ?? undefined,
+          }}
+          onOpenChange={(open) => !open && setAppointmentDrawerTarget(null)}
+          onSaved={(appointment) => setNextAppointment(appointment.status === "scheduled" ? appointment : null)}
+          onDeleted={() => setNextAppointment(null)}
+        />
+      )}
     </>
   );
 }

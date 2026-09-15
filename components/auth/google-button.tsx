@@ -26,11 +26,11 @@ function GoogleIcon() {
   );
 }
 
-export function GoogleButton({ next = "/" }: { next?: string }) {
+export function GoogleButton({ next = "/", disabled = false }: { next?: string; disabled?: boolean }) {
   return (
     <form action={signInWithGoogle}>
       <input type="hidden" name="next" value={next} />
-      <Button type="submit" variant="outline" className="h-11 w-full gap-2">
+      <Button type="submit" variant="outline" disabled={disabled} className="h-11 w-full gap-2">
         <GoogleIcon />
         Continuar con Google
       </Button>

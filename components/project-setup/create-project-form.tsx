@@ -10,6 +10,7 @@ import { DrawerFooter } from "@/components/ui/drawer";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import { SCIAN_CATALOG } from "@/lib/scian/catalog";
 import { toast } from "@/lib/toast";
+import { openPaywall } from "@/lib/paywall";
 import type { ProjectRow } from "@/lib/db/types";
 
 const SCIAN_TITLE_BY_CODE = new Map(SCIAN_CATALOG.map((c) => [c.code, c.title]));
@@ -57,6 +58,13 @@ export function CreateProjectForm({
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        // A race (e.g. two tabs) can reach here even past the client-side
+        // check in AppShell — show the paywall instead of a raw error.
+        if (res.status === 402) {
+          openPaywall("proyecto");
+          setSubmitting(false);
+          return;
+        }
         throw new Error(data.error ?? "No se pudo crear el proyecto");
       }
 

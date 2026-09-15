@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "prospectool-landing-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "prospectool-landing", "run", "dev"],
+      "port": 3100,
+      "autoPort": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { createProject, listProjects } from "@/lib/db/projects";
+import { UpgradeRequiredError } from "@/lib/billing/errors";
 
 export async function GET() {
   const projects = await listProjects();
@@ -23,6 +24,13 @@ export async function POST(request: Request) {
     return Response.json({ error: "Falta al menos un tipo de negocio que buscas" }, { status: 400 });
   }
 
-  const project = await createProject({ productService, keywords });
-  return Response.json(project, { status: 201 });
+  try {
+    const project = await createProject({ productService, keywords });
+    return Response.json(project, { status: 201 });
+  } catch (err) {
+    if (err instanceof UpgradeRequiredError) {
+      return Response.json({ error: err.message, code: err.code }, { status: 402 });
+    }
+    throw err;
+  }
 }

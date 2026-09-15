@@ -7,10 +7,12 @@ import { BusinessList, type FilterKey } from "./business-list";
 import { BusinessDetail } from "./business-detail";
 import { useIsDesktop } from "@/hooks/use-media-query";
 import type { BusinessRow, LeadRow } from "@/lib/db/types";
+import type { SiemRow } from "@/lib/siem/types";
 
 interface ResultsDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  projectId: string;
   businesses: BusinessRow[];
   selected: BusinessRow | null;
   onSelect: (business: BusinessRow | null) => void;
@@ -22,11 +24,16 @@ interface ResultsDrawerProps {
   onLeadUpdated: (lead: LeadRow) => void;
   onBusinessUpdated: (business: BusinessRow) => void;
   advancedIds?: Set<string>;
+  lockedIds?: Set<string>;
+  /** Cached/deduped SIEM match lookup shared with BusinessMap's background
+   *  preload — see business-map.tsx. */
+  fetchSiemMatches: (businessId: string) => Promise<SiemRow[] | null>;
 }
 
 export function ResultsDrawer({
   open,
   onOpenChange,
+  projectId,
   businesses,
   selected,
   onSelect,
@@ -38,6 +45,8 @@ export function ResultsDrawer({
   onLeadUpdated,
   onBusinessUpdated,
   advancedIds,
+  lockedIds,
+  fetchSiemMatches,
 }: ResultsDrawerProps) {
   // Lives here (not in BusinessList) so it survives switching to the detail
   // view and back — BusinessList unmounts while a business is selected.
@@ -104,6 +113,7 @@ export function ResultsDrawer({
           {selected ? (
             <BusinessDetail
               business={selected}
+              projectId={projectId}
               userLocation={userLocation}
               onBack={() => onSelect(null)}
               lead={leadsByBusinessId.get(selected.id) ?? null}
@@ -112,6 +122,7 @@ export function ResultsDrawer({
               onToggleSave={onToggleSave}
               onLeadUpdated={onLeadUpdated}
               onBusinessUpdated={onBusinessUpdated}
+              fetchSiemMatches={fetchSiemMatches}
             />
           ) : (
             <BusinessList
@@ -124,6 +135,7 @@ export function ResultsDrawer({
               onToggleSave={onToggleSave}
               onMarkVisited={onMarkVisited}
               advancedIds={advancedIds}
+              lockedIds={lockedIds}
             />
           )}
         </DrawerContent>
@@ -142,7 +154,7 @@ export function ResultsDrawer({
           type="button"
           onClick={() => onOpenChange(false)}
           aria-label="Cerrar panel de resultados"
-          className="fixed top-8 left-[27rem] z-[60] flex h-8 w-8 items-center justify-center rounded-full bg-popover/95 shadow-soft backdrop-blur transition-colors duration-150 ease-in-out hover:bg-muted"
+          className="fixed top-8 left-[27rem] z-[60] flex h-8 w-8 items-center justify-center rounded-full bg-popover/95 shadow-soft backdrop-blur transition-colors duration-150 ease-in-out hover:bg-muted active:scale-95"
         >
           <ChevronLeft className="h-4 w-4 text-primary" />
         </button>

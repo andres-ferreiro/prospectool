@@ -36,15 +36,17 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
 
 function DialogContent({
   className,
+  overlayClassName,
+  viewportClassName,
   children,
   ...props
-}: DialogPrimitive.Popup.Props) {
+}: DialogPrimitive.Popup.Props & { overlayClassName?: string; viewportClassName?: string }) {
   return (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Viewport
         data-slot="dialog-viewport"
-        className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4"
+        className={cn("pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4", viewportClassName)}
       >
         <DialogPrimitive.Popup
           data-slot="dialog-content"

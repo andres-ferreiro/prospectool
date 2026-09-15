@@ -19,8 +19,8 @@ export function KanbanCard({ lead, onOpen }: KanbanCardProps) {
       ref={setNodeRef}
       type="button"
       onClick={() => onOpen(lead.id)}
-      className={`flex w-full items-start gap-2.5 rounded-xl border border-border bg-card p-3 text-left shadow-sm transition-colors duration-150 ease-in-out hover:bg-muted ${
-        isDragging ? "z-10 opacity-50 shadow-md" : ""
+      className={`flex w-full items-start gap-2.5 rounded-xl border border-border bg-card p-3 text-left shadow-md transition-colors duration-150 ease-in-out hover:bg-muted ${
+        isDragging ? "z-10 opacity-50 shadow-lg" : ""
       }`}
       style={
         transform

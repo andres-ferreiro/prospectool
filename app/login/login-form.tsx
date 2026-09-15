@@ -25,6 +25,7 @@ export function LoginForm({ next }: { next: string }) {
             name="email"
             type="email"
             autoComplete="email"
+            placeholder="tu@correo.com"
             required
             className="h-11 rounded-xl border-0 shadow-sm"
           />
@@ -37,6 +38,7 @@ export function LoginForm({ next }: { next: string }) {
             name="password"
             type="password"
             autoComplete="current-password"
+            placeholder="••••••••"
             required
             className="h-11 rounded-xl border-0 shadow-sm"
           />

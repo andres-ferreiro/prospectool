@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { GoogleButton } from "@/components/auth/google-button";
 import { signUp, type AuthActionState } from "./actions";
 
@@ -12,6 +13,7 @@ const initialState: AuthActionState = { error: null };
 
 export function SignupForm() {
   const [state, formAction, pending] = useActionState(signUp, initialState);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   return (
     <div className="flex flex-col gap-4">
@@ -23,6 +25,7 @@ export function SignupForm() {
             name="email"
             type="email"
             autoComplete="email"
+            placeholder="tu@correo.com"
             required
             className="h-11 rounded-xl border-0 shadow-sm"
           />
@@ -35,15 +38,37 @@ export function SignupForm() {
             name="password"
             type="password"
             autoComplete="new-password"
+            placeholder="••••••••"
             minLength={6}
             required
             className="h-11 rounded-xl border-0 shadow-sm"
           />
         </div>
 
+        <label className="flex items-start gap-2.5 text-sm text-muted-foreground">
+          <Checkbox
+            name="acceptTerms"
+            checked={acceptedTerms}
+            onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+            required
+            className="mt-0.5"
+          />
+          <span>
+            Acepto el{" "}
+            <Link href="/privacidad" target="_blank" className="font-medium text-primary hover:underline">
+              Aviso de Privacidad
+            </Link>{" "}
+            y los{" "}
+            <Link href="/terminos" target="_blank" className="font-medium text-primary hover:underline">
+              Términos y Condiciones
+            </Link>{" "}
+            de Prospectool.
+          </span>
+        </label>
+
         {state.error && <p className="text-sm text-destructive">{state.error}</p>}
 
-        <Button type="submit" disabled={pending} className="mt-1 h-11">
+        <Button type="submit" disabled={pending || !acceptedTerms} className="mt-1 h-11">
           {pending ? "Creando cuenta…" : "Crear cuenta"}
         </Button>
       </form>
@@ -54,7 +79,7 @@ export function SignupForm() {
         <div className="h-px flex-1 bg-border" />
       </div>
 
-      <GoogleButton />
+      <GoogleButton disabled={!acceptedTerms} />
 
       <p className="text-center text-sm text-muted-foreground">
         ¿Ya tienes cuenta?{" "}

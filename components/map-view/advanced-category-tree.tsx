@@ -2,9 +2,10 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
-import { Check, ChevronDown, Minus } from "lucide-react";
+import { Check, ChevronDown, Minus, SearchX } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Accordion, AccordionItem } from "@/components/ui/accordion";
+import { EmptyState } from "@/components/ui/empty-state";
 import { SCIAN_TREE, normalizeSpanish } from "@/lib/scian/groups";
 
 interface AdvancedCategoryTreeProps {
@@ -141,7 +142,7 @@ export function AdvancedCategoryTree({ value, onChange }: AdvancedCategoryTreePr
 
       <div className="max-h-80 min-w-0 overflow-x-hidden overflow-y-auto rounded-xl border border-border/50 bg-popover px-2">
         {filteredTree.length === 0 ? (
-          <p className="px-2 py-3 text-sm text-muted-foreground">Sin resultados en el catálogo SCIAN.</p>
+          <EmptyState size="sm" icon={SearchX} title="Sin resultados en el catálogo SCIAN" className="py-4" />
         ) : (
           <Accordion multiple value={openSectors} onValueChange={setOpenSectors}>
             {filteredTree.map((sector) => {

@@ -1,24 +1,38 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import Link from "next/link";
+import { Inbox, Search } from "lucide-react";
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { Input } from "@/components/ui/input";
-import { STAGES, type LeadRow, type LeadWithBusiness, type Stage } from "@/lib/db/types";
-import { toast } from "@/lib/toast";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { STAGES, type LeadContactRow, type LeadRow, type LeadWithBusiness, type Stage } from "@/lib/db/types";
 import { KanbanColumn } from "./kanban-column";
 import { LeadDetailModal } from "./lead-detail-modal";
 
 interface KanbanBoardProps {
-  initialLeads: LeadWithBusiness[];
+  projectId: string;
+  leads: LeadWithBusiness[];
+  onStageChange: (leadId: string, stage: Stage) => Promise<void>;
+  onLeadUpdated: (updated: LeadRow) => void;
+  onContactsChanged: (leadId: string, contacts: LeadContactRow[]) => void;
 }
 
 function isStage(value: unknown): value is Stage {
   return typeof value === "string" && (STAGES as readonly string[]).includes(value);
 }
 
-export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
-  const [leads, setLeads] = useState(initialLeads);
+// Matches KanbanColumn's w-72 and the row's gap-3 — used to give the board
+// row an explicit width so margin:auto can center it when it fits the
+// viewport, while still scrolling (not clipping) when it doesn't. A plain
+// `justify-center` on the scroll container would clip the first column
+// instead of scrolling to it once the row overflows.
+const COLUMN_WIDTH = 288;
+const COLUMN_GAP = 12;
+const BOARD_WIDTH = STAGES.length * COLUMN_WIDTH + (STAGES.length - 1) * COLUMN_GAP;
+
+export function KanbanBoard({ projectId, leads, onStageChange, onLeadUpdated, onContactsChanged }: KanbanBoardProps) {
   const [query, setQuery] = useState("");
   const [openLeadId, setOpenLeadId] = useState<string | null>(null);
 
@@ -44,38 +58,16 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
     return map;
   }, [leads, query]);
 
-  const handleLeadUpdated = (updated: LeadRow) => {
-    setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
-  };
-
-  const handleDragEnd = async (event: DragEndEvent) => {
+  const handleDragEnd = (event: DragEndEvent) => {
     const leadId = String(event.active.id);
     const targetStage = event.over?.id;
     if (!isStage(targetStage)) return;
-
-    const lead = leads.find((l) => l.id === leadId);
-    if (!lead || lead.stage === targetStage) return;
-
-    const previousStage = lead.stage;
-    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, stage: targetStage } : l)));
-
-    try {
-      const res = await fetch(`/api/leads/${leadId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stage: targetStage }),
-      });
-      if (!res.ok) throw new Error("Error desconocido");
-    } catch (err) {
-      console.error("Error al mover el lead:", err);
-      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, stage: previousStage } : l)));
-      toast({ title: "No se pudo mover el lead", variant: "error" });
-    }
+    onStageChange(leadId, targetStage);
   };
 
   return (
     <>
-      <div className="relative mb-4">
+      <div className="relative mx-auto mb-4 max-w-xl">
         <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={query}
@@ -86,20 +78,31 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
       </div>
 
       {leads.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
-          Todavía no hay leads. Márcalos como visitados desde el mapa.
-        </p>
+        <div className="mx-auto max-w-xl rounded-xl border border-dashed border-border">
+          <EmptyState
+            icon={Inbox}
+            title="Todavía no tienes leads"
+            description="Márcalos como visitados desde el mapa para que aparezcan aquí."
+            action={
+              <Button size="sm" variant="secondary" render={<Link href={`/proyectos/${projectId}`} />}>
+                Ir al mapa
+              </Button>
+            }
+          />
+        </div>
       ) : (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <div className="flex gap-3 overflow-x-auto pb-4">
-            {STAGES.map((stage) => (
-              <KanbanColumn
-                key={stage}
-                stage={stage}
-                leads={leadsByStage.get(stage) ?? []}
-                onOpen={setOpenLeadId}
-              />
-            ))}
+          <div className="overflow-x-auto pb-4">
+            <div className="mx-auto flex gap-3" style={{ width: BOARD_WIDTH }}>
+              {STAGES.map((stage) => (
+                <KanbanColumn
+                  key={stage}
+                  stage={stage}
+                  leads={leadsByStage.get(stage) ?? []}
+                  onOpen={setOpenLeadId}
+                />
+              ))}
+            </div>
           </div>
         </DndContext>
       )}
@@ -108,10 +111,8 @@ export function KanbanBoard({ initialLeads }: KanbanBoardProps) {
         leadId={openLeadId}
         open={openLeadId !== null}
         onOpenChange={(open) => !open && setOpenLeadId(null)}
-        onUpdated={handleLeadUpdated}
-        onContactsChanged={(leadId, contacts) =>
-          setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, contacts } : l)))
-        }
+        onUpdated={onLeadUpdated}
+        onContactsChanged={onContactsChanged}
       />
     </>
   );

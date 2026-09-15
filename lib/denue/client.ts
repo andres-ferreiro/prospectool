@@ -31,7 +31,13 @@ function httpsGetJson<T>(url: string): Promise<T> {
         res.on("data", (chunk) => (raw += chunk));
         res.on("end", () => {
           try {
-            resolve(JSON.parse(raw) as T);
+            let parsed: unknown = JSON.parse(raw);
+            // With `Accept: application/json` INEGI sometimes wraps the
+            // payload in an extra layer of JSON-string-encoding — the body
+            // is a JSON string literal containing the real JSON, so the
+            // first parse yields a string instead of the array/object.
+            if (typeof parsed === "string") parsed = JSON.parse(parsed);
+            resolve(parsed as T);
           } catch {
             reject(new Error("La respuesta de DENUE no es JSON válido"));
           }

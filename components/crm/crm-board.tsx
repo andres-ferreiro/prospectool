@@ -1,27 +1,33 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import Link from "next/link";
+import { Inbox, Search, SearchX } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { LeadCard } from "./lead-card";
 import { LeadDetailModal } from "./lead-detail-modal";
-import { toast } from "@/lib/toast";
 import {
   STAGES,
   STAGE_COLORS,
   STAGE_LABELS,
+  type LeadContactRow,
   type LeadRow,
   type LeadWithBusiness,
   type Stage,
 } from "@/lib/db/types";
 
 interface CrmBoardProps {
-  initialLeads: LeadWithBusiness[];
+  projectId: string;
+  leads: LeadWithBusiness[];
+  onStageChange: (leadId: string, stage: Stage) => Promise<void>;
+  onLeadUpdated: (updated: LeadRow) => void;
+  onContactsChanged: (leadId: string, contacts: LeadContactRow[]) => void;
 }
 
-export function CrmBoard({ initialLeads }: CrmBoardProps) {
-  const [leads, setLeads] = useState(initialLeads);
+export function CrmBoard({ projectId, leads, onStageChange, onLeadUpdated, onContactsChanged }: CrmBoardProps) {
   const [activeStage, setActiveStage] = useState<Stage>("contacted");
   const [query, setQuery] = useState("");
   const [openLeadId, setOpenLeadId] = useState<string | null>(null);
@@ -45,33 +51,6 @@ export function CrmBoard({ initialLeads }: CrmBoardProps) {
     });
   }, [leads, activeStage, query]);
 
-  const handleLeadUpdated = (updated: LeadRow) => {
-    setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
-  };
-
-  // Swipe-to-advance / swipe-to-mark-lost on the card (see lead-card.tsx) —
-  // same PATCH endpoint and optimistic-update-with-rollback the desktop
-  // Kanban board's drag-and-drop uses.
-  const handleStageChange = async (leadId: string, stage: Stage) => {
-    const lead = leads.find((l) => l.id === leadId);
-    if (!lead || lead.stage === stage) return;
-    const previousStage = lead.stage;
-    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, stage } : l)));
-
-    try {
-      const res = await fetch(`/api/leads/${leadId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stage }),
-      });
-      if (!res.ok) throw new Error("Error desconocido");
-    } catch (err) {
-      console.error("Error al mover el lead:", err);
-      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, stage: previousStage } : l)));
-      toast({ title: "No se pudo mover el lead", variant: "error" });
-    }
-  };
-
   return (
     <>
       <div className="relative mb-4">
@@ -86,16 +65,23 @@ export function CrmBoard({ initialLeads }: CrmBoardProps) {
 
       <div className="flex flex-col gap-2 pb-40">
         {leads.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
-            Todavía no hay leads. Márcalos como visitados desde el mapa.
-          </p>
+          <div className="rounded-xl border border-dashed border-border">
+            <EmptyState
+              icon={Inbox}
+              title="Todavía no tienes leads"
+              description="Márcalos como visitados desde el mapa para que aparezcan aquí."
+              action={
+                <Button size="sm" variant="secondary" render={<Link href={`/proyectos/${projectId}`} />}>
+                  Ir al mapa
+                </Button>
+              }
+            />
+          </div>
         ) : visibleLeads.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">
-            Ningún lead coincide en esta etapa.
-          </p>
+          <EmptyState size="sm" icon={SearchX} title="Ningún lead coincide en esta etapa" />
         ) : (
           visibleLeads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} onOpen={setOpenLeadId} onStageChange={handleStageChange} />
+            <LeadCard key={lead.id} lead={lead} onOpen={setOpenLeadId} onStageChange={onStageChange} />
           ))
         )}
       </div>
@@ -132,10 +118,8 @@ export function CrmBoard({ initialLeads }: CrmBoardProps) {
         leadId={openLeadId}
         open={openLeadId !== null}
         onOpenChange={(open) => !open && setOpenLeadId(null)}
-        onUpdated={handleLeadUpdated}
-        onContactsChanged={(leadId, contacts) =>
-          setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, contacts } : l)))
-        }
+        onUpdated={onLeadUpdated}
+        onContactsChanged={onContactsChanged}
       />
     </>
   );
