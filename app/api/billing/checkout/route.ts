@@ -56,7 +56,14 @@ export async function POST(request: Request) {
       // A card must be on file up front for the trial to actually convert to
       // a real charge on day 8 — otherwise Stripe has nothing to bill.
       ...(plan === "yearly" ? { payment_method_collection: "always" } : {}),
-      ...(plan === "monthly" ? { discounts: [{ coupon: process.env.STRIPE_COUPON_FIRST_MONTH! }] } : {}),
+      // `discounts` and `allow_promotion_codes` are mutually exclusive —
+      // Stripe rejects a session that sends both ("You may only specify one of
+      // these parameters"). The monthly plan spends its one discount slot on
+      // the automatic first-month coupon, so the redeem-a-code field can only
+      // be offered on yearly, which applies no discount of its own.
+      ...(plan === "monthly"
+        ? { discounts: [{ coupon: process.env.STRIPE_COUPON_FIRST_MONTH! }] }
+        : { allow_promotion_codes: true }),
       // Straight to the map, not /precios — landing there directly (a real
       // browser redirect, not a client-side transition) is what makes
       // AppShell's isPaid come back correct immediately instead of staying
