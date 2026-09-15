@@ -10,8 +10,11 @@ import { signInWithPassword, type AuthActionState } from "./actions";
 
 const initialState: AuthActionState = { error: null };
 
-export function LoginForm({ next }: { next: string }) {
+export function LoginForm({ next, initialError = null }: { next: string; initialError?: string | null }) {
   const [state, formAction, pending] = useActionState(signInWithPassword, initialState);
+  // A server-action error from this form supersedes the one carried over in
+  // the URL from a failed OAuth callback.
+  const error = state.error ?? initialError;
 
   return (
     <div className="flex flex-col gap-4">
@@ -44,7 +47,7 @@ export function LoginForm({ next }: { next: string }) {
           />
         </div>
 
-        {state.error && <p className="text-sm text-destructive">{state.error}</p>}
+        {error && <p className="text-sm text-destructive">{error}</p>}
 
         <Button type="submit" disabled={pending} className="mt-1 h-11">
           {pending ? "Entrando…" : "Entrar"}
