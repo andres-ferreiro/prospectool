@@ -47,6 +47,13 @@ export function LoginForm({ next, initialError = null }: { next: string; initial
           />
         </div>
 
+        <Link
+          href="/recuperar"
+          className="-mt-1 self-end text-sm font-medium text-primary hover:underline"
+        >
+          ¿Olvidaste tu contraseña?
+        </Link>
+
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         <Button type="submit" disabled={pending} className="mt-1 h-11">

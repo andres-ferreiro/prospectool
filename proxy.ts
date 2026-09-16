@@ -9,6 +9,7 @@ const PUBLIC_PATHS = [
   "/signup",
   "/auth/callback",
   "/api/webhooks/stripe",
+  "/recuperar",
   "/privacidad",
   "/terminos",
   // Static PWA assets fetched by the browser/OS outside any page

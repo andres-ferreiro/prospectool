@@ -1,15 +1,18 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { setPendingEmail } from "@/lib/auth/pending-email";
 
 export interface AuthActionState {
   error: string | null;
+  // Set only by the resend action, so the verify screen can confirm a new code
+  // went out without turning that into an error-styled message.
+  notice?: string | null;
 }
 
 export async function signUp(_prevState: AuthActionState, formData: FormData): Promise<AuthActionState> {
-  const email = String(formData.get("email") ?? "");
+  const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const acceptedTerms = formData.get("acceptTerms") === "on";
 
@@ -21,25 +24,20 @@ export async function signUp(_prevState: AuthActionState, formData: FormData): P
     return { error: "La contraseña debe tener al menos 6 caracteres." };
   }
 
-  const headerList = await headers();
-  // x-forwarded-host is a bare hostname with no scheme, so it has to be
-  // rebuilt into an absolute origin — Supabase rejects a scheme-less
-  // redirect URL. `origin` is present on every server-action POST (Next.js
-  // requires it for its CSRF check), so the fallback is belt-and-braces.
-  const forwardedHost = headerList.get("x-forwarded-host");
-  const forwardedProto = headerList.get("x-forwarded-proto") ?? "https";
-  const origin = headerList.get("origin") ?? (forwardedHost ? `${forwardedProto}://${forwardedHost}` : "");
-
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { emailRedirectTo: `${origin}/auth/callback` },
-  });
+  // No emailRedirectTo: the "Confirm signup" template sends a 6-digit
+  // {{ .Token }} rather than a link, and the code is redeemed at
+  // /signup/verificar via verifyOtp. A link would open in the OS browser
+  // rather than the installed PWA, stranding the session in the wrong place.
+  const { error } = await supabase.auth.signUp({ email, password });
 
   if (error) {
-    return { error: error.message === "User already registered" ? "Ese correo ya tiene una cuenta." : "No se pudo crear la cuenta." };
+    return { error: "No se pudo crear la cuenta. Revisa el correo e inténtalo de nuevo." };
   }
 
-  redirect("/signup?sent=1");
+  // Deliberately identical whether or not the address was already registered —
+  // Supabase obfuscates that case to prevent account enumeration, and diverging
+  // here would reintroduce the leak it is protecting against.
+  await setPendingEmail("signup", email);
+  redirect("/signup/verificar");
 }
