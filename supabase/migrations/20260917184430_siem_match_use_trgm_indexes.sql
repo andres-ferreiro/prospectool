@@ -9,14 +9,20 @@
 -- sequential scan of all ~169k rows, computing immutable_unaccent(lower())
 -- twice per row — the razon_social/municipio GIN indexes were never used.
 --
--- Fix: switch both fuzzy predicates to `%` (with the threshold pinned on the
--- function so behaviour does not depend on session state), and split the
--- three-way OR into separately-indexable branches — one seq-scanning branch
--- in an OR forces a full scan regardless of the other branches' indexes.
+-- Fix: use `%` so the GIN indexes apply, and split the three-way OR into
+-- separately-indexable branches — one seq-scanning branch in an OR forces a
+-- full scan regardless of the other branches' indexes.
 --
--- Measured on production data (169,125 rows): 7,382ms -> 226ms, same results,
--- plan now a BitmapAnd over idx_siem_dataset_razon_social_unaccent_trgm and
--- idx_siem_dataset_municipio_unaccent_trgm.
+-- `%` compares against pg_trgm.similarity_threshold (default 0.3), and this
+-- database's role may not pin that GUC on the function ("permission denied to
+-- set parameter", because pg_trgm lives in the extensions schema). So each
+-- fuzzy branch keeps an explicit similarity(...) >= 0.4 alongside the `%`:
+-- the operator narrows to index candidates, the comparison re-applies the
+-- original 0.4 cutoff regardless of session state, and results are identical
+-- to the pre-index behaviour.
+--
+-- Measured on this database (169,125 rows): 3,534ms -> 92ms for a lookup, and
+-- a name+municipio taken from the dataset still returns its 5 matches.
 
 -- The email branch compares lower(e_mail); the existing btree is on the raw
 -- column and cannot serve that, so it needs its own functional index.
@@ -33,7 +39,6 @@ returns setof "SIEM-dataset"
 language sql
 stable
 set search_path to 'public'
-set pg_trgm.similarity_threshold to 0.4
 as $function$
   with candidates as (
     (select s.uuid
@@ -48,14 +53,16 @@ as $function$
         and lower(s.e_mail) = lower(p_email)
       limit 5)
     union
-    -- Both fuzzy predicates use `%` so the GIN indexes apply; the planner
-    -- intersects them with a BitmapAnd before touching the heap.
+    -- `%` lets the planner use the GIN indexes (BitmapAnd of both); the
+    -- similarity() comparisons re-assert the 0.4 cutoff on the candidates.
     (select s.uuid
        from "SIEM-dataset" s
       where p_municipio is not null and p_municipio <> ''
         and p_name is not null and p_name <> ''
         and immutable_unaccent(lower(s.razon_social)) % immutable_unaccent(lower(p_name))
         and immutable_unaccent(lower(s.municipio)) % immutable_unaccent(lower(p_municipio))
+        and similarity(immutable_unaccent(lower(s.razon_social)), immutable_unaccent(lower(p_name))) >= 0.4
+        and similarity(immutable_unaccent(lower(s.municipio)), immutable_unaccent(lower(p_municipio))) >= 0.4
       limit 50)
   )
   select s.*
