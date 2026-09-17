@@ -16,7 +16,7 @@ interface ResultsDrawerProps {
   businesses: BusinessRow[];
   selected: BusinessRow | null;
   onSelect: (business: BusinessRow | null) => void;
-  userLocation: { lat: number; lng: number };
+  userLocation?: { lat: number; lng: number };
   leadsByBusinessId: Map<string, LeadRow>;
   savedIds: Set<string>;
   onMarkVisited: (business: BusinessRow) => Promise<void>;

@@ -3,11 +3,13 @@ import { withJwtSkewRetry } from "@/lib/supabase/query-retry";
 import { canCreateProject } from "@/lib/billing/limits";
 import { getSubscriptionState } from "@/lib/billing/subscription-status";
 import { UpgradeRequiredError } from "@/lib/billing/errors";
-import type { ProjectRow } from "./types";
+import { DEFAULT_SEARCH_RADIUS_M } from "@/lib/project-base-search";
+import type { ProjectBaseSearch, ProjectRow } from "./types";
 
 export interface CreateProjectInput {
   productService: string;
   keywords: string[];
+  scianCodes?: string[];
 }
 
 // Every function here is async — call sites already await them, so a future
@@ -40,7 +42,24 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectR
   const { data, error } = await withJwtSkewRetry(() =>
     db
       .from("projects")
-      .insert({ product_service: input.productService, keywords: input.keywords, user_id: user.id })
+      .insert({
+        product_service: input.productService,
+        keywords: input.keywords,
+        user_id: user.id,
+        // Categories are known at creation; where to search isn't until the
+        // location step, which fills in the rest via updateProject.
+        ...(input.scianCodes && input.scianCodes.length > 0
+          ? {
+              base_search: {
+                center: null,
+                radiusM: DEFAULT_SEARCH_RADIUS_M,
+                entidad: null,
+                municipio: null,
+                scianCodes: input.scianCodes,
+              } satisfies ProjectBaseSearch,
+            }
+          : {}),
+      })
       .select()
       .single()
   );
@@ -62,6 +81,7 @@ export async function getProject(id: string): Promise<ProjectRow | null> {
 export interface UpdateProjectInput {
   productService?: string;
   keywords?: string[];
+  baseSearch?: ProjectBaseSearch;
 }
 
 export async function updateProject(id: string, input: UpdateProjectInput): Promise<ProjectRow> {
@@ -69,6 +89,7 @@ export async function updateProject(id: string, input: UpdateProjectInput): Prom
   const patch: Record<string, unknown> = {};
   if (input.productService !== undefined) patch.product_service = input.productService;
   if (input.keywords !== undefined) patch.keywords = input.keywords;
+  if (input.baseSearch !== undefined) patch.base_search = input.baseSearch;
 
   const { data, error } = await withJwtSkewRetry(() =>
     db.from("projects").update(patch).eq("id", id).eq("user_id", user.id).select().single()

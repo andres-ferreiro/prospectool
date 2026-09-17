@@ -31,7 +31,7 @@ import { timeLabel } from "@/lib/calendar/format";
 interface BusinessDetailProps {
   business: BusinessRow;
   projectId: string;
-  userLocation: { lat: number; lng: number };
+  userLocation?: { lat: number; lng: number };
   onBack: () => void;
   lead: LeadRow | null;
   saved: boolean;
@@ -195,7 +195,9 @@ export function BusinessDetail({
   );
   const mapsSearchUrl = `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
   const directionsUrl = hasCoords
-    ? `https://www.google.com/maps/dir/?api=1&origin=${userLocation.lat},${userLocation.lng}&destination=${business.lat},${business.lng}`
+    ? // Without a shared location, omitting origin lets Google Maps use the
+      // device's own position instead of a made-up starting point.
+      `https://www.google.com/maps/dir/?api=1${userLocation ? `&origin=${userLocation.lat},${userLocation.lng}` : ""}&destination=${business.lat},${business.lng}`
     : null;
 
   return (

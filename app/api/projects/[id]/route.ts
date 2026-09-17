@@ -1,4 +1,5 @@
-import { getProject, updateProject } from "@/lib/db/projects";
+import { getProject, updateProject, type UpdateProjectInput } from "@/lib/db/projects";
+import { parseBaseSearch } from "@/lib/project-base-search";
 
 export async function GET(_request: Request, { params }: RouteContext<"/api/projects/[id]">) {
   const { id } = await params;
@@ -13,7 +14,7 @@ export async function PATCH(request: Request, { params }: RouteContext<"/api/pro
   const { id } = await params;
   const body = await request.json();
 
-  const patch: { productService?: string; keywords?: string[] } = {};
+  const patch: UpdateProjectInput = {};
 
   if (body.productService !== undefined) {
     const productService = typeof body.productService === "string" ? body.productService.trim() : "";
@@ -34,6 +35,14 @@ export async function PATCH(request: Request, { params }: RouteContext<"/api/pro
       return Response.json({ error: "Falta al menos un tipo de negocio que buscas" }, { status: 400 });
     }
     patch.keywords = keywords;
+  }
+
+  if (body.baseSearch !== undefined) {
+    const baseSearch = parseBaseSearch(body.baseSearch);
+    if (!baseSearch) {
+      return Response.json({ error: "Búsqueda del proyecto inválida" }, { status: 400 });
+    }
+    patch.baseSearch = baseSearch;
   }
 
   if (Object.keys(patch).length === 0) {

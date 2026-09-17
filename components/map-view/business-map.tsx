@@ -7,6 +7,7 @@ import MapGL, { Layer, Marker, Source, type MapRef } from "react-map-gl/mapbox";
 import type { GeoJSONSource, MapMouseEvent } from "mapbox-gl";
 import type { Feature, FeatureCollection, Point } from "geojson";
 import type {
+  ProjectBaseSearch,
   ProjectRow,
   BusinessRow,
   LeadRow,
@@ -22,17 +23,22 @@ import { MapStateBanner } from "./map-state-banner";
 import { MyLocationDot } from "./my-location-dot";
 import { LocateButton } from "./locate-button";
 import { SearchAreaButton } from "./search-area-button";
+import { ProjectSearchButton } from "./project-search-button";
 import { ResultsDrawer } from "./results-drawer";
 import { ResultsToggle } from "./results-toggle";
 import { MapSettingsDrawer, type LayerKey } from "./map-settings-drawer";
 import { AdvancedSearchDrawer } from "./advanced-search-drawer";
 import { SearchProgressOverlay } from "./search-progress-overlay";
-import { useCurrentLocation } from "@/hooks/use-current-location";
+import { FALLBACK_LOCATION, useCurrentLocation } from "@/hooks/use-current-location";
+import { DEFAULT_SEARCH_RADIUS_M, hasCategorySearch } from "@/lib/project-base-search";
 import {
   readCachedSearch,
   writeCachedSearch,
   readCachedAdvancedSearch,
   writeCachedAdvancedSearch,
+  clearCachedAdvancedSearch,
+  type CachedAdvancedSearch,
+  type CachedSearch,
 } from "@/lib/search-cache";
 import { hasSeenMapControlsHint, markMapControlsHintSeen } from "@/lib/onboarding";
 import { haversineMeters, radiusFromBounds } from "@/lib/geo";
@@ -46,20 +52,22 @@ type Status = "idle" | "loading" | "loaded" | "error";
 export interface BusinessMapHandle {
   /** Fly the map to a location and immediately search there. */
   flyToAndSearch: (center: { lat: number; lng: number }) => void;
-  /** Runs the same background category search Advanced Search's drawer
-   *  triggers, for callers (like the AI onboarding flow) that already
-   *  have codes + a location and don't need the drawer's own UI. */
-  runAdvancedSearch: (codes: string[], entidad: string, municipio: string) => void;
+  /** Runs a project's base search: the keyword search around its center,
+   *  plus the category search when it has SCIAN codes and a municipio.
+   *  Used right after the onboarding location step picks the center. */
+  runBaseSearch: (base: ProjectBaseSearch) => void;
 }
 
 interface BusinessMapProps {
   project: ProjectRow | null;
+  /** The project's own saved search — never run automatically on open;
+   *  offered as "Búsqueda del proyecto" whenever it isn't what's shown. */
+  baseSearch: ProjectBaseSearch | null;
   /** True while another drawer (e.g. project creation) is open. */
   suppressDrawer?: boolean;
-  /** True while the onboarding location step is still pending — holds off
-   *  the automatic search-on-open so it doesn't race the location the user
-   *  is about to pick there. */
-  suppressAutoSearch?: boolean;
+  /** True while the onboarding location step is open — holds back the
+   *  one-time map controls hint so the two never compete for attention. */
+  onboardingActive?: boolean;
   leads: LeadWithBusiness[];
   savedBusinesses: SavedBusinessWithBusiness[];
   onMarkVisited: (business: BusinessRow) => Promise<void>;
@@ -68,7 +76,7 @@ interface BusinessMapProps {
   isPaid: boolean;
 }
 
-const DEFAULT_RADIUS_M = 1500;
+const DEFAULT_RADIUS_M = DEFAULT_SEARCH_RADIUS_M;
 const MOVE_THRESHOLD_M = 250;
 // Pins are naturally spread out enough by this zoom that a name label per
 // pin reads as useful rather than as clutter — below it, only the
@@ -105,11 +113,27 @@ function layerColor(status: LayerKey): string {
   return status === "saved" ? SAVED_COLOR : STAGE_COLORS[status as Stage];
 }
 
+// Whether the cached results are exactly the project's full base search
+// (both halves, same area, same categories) rather than a partial or
+// exploratory one — decides if "Búsqueda del proyecto" is still offered.
+function cacheMatchesBase(
+  base: ProjectBaseSearch,
+  cached: CachedSearch | null,
+  cachedAdvanced: CachedAdvancedSearch | null
+): boolean {
+  if (!base.center || !cached) return false;
+  if (haversineMeters(cached.center, base.center) >= 50 || cached.radiusM !== base.radiusM) return false;
+  const baseCodes = hasCategorySearch(base) ? base.scianCodes : [];
+  const cachedCodes = cachedAdvanced?.codes ?? [];
+  return cachedCodes.length === baseCodes.length && cachedCodes.every((c) => baseCodes.includes(c));
+}
+
 export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(function BusinessMap(
   {
     project,
+    baseSearch,
     suppressDrawer = false,
-    suppressAutoSearch = false,
+    onboardingActive = false,
     leads,
     savedBusinesses,
     onMarkVisited,
@@ -121,7 +145,26 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
 ) {
   const mapRef = useRef<MapRef>(null);
   const { resolvedTheme } = useTheme();
-  const { location, resolved, isPrecise } = useCurrentLocation();
+  // Only the device's real position (null until the user shares it) — used
+  // for the "you are here" dot and directions, never as a search location.
+  const { coords: myLocation, status: myLocationStatus, request: requestMyLocation } = useCurrentLocation();
+  // Where the map first opens: this project's own search area if it has
+  // one, so it never visibly jumps from somewhere else once results load.
+  const [initialCenter] = useState(
+    () => (project && readCachedSearch(project.id)?.center) || baseSearch?.center || FALLBACK_LOCATION
+  );
+  // True only while the map shows the project's full base search. Opening a
+  // project never runs it automatically — the user picks between it and a
+  // plain "buscar en esta área" — so this starts false unless fresh cached
+  // results already are that search.
+  const [showingBaseSearch, setShowingBaseSearch] = useState(false);
+  // Read by the mount effect below without making baseSearch a dependency
+  // — its identity changes when the location step resolves, which already
+  // runs the search explicitly and must not trigger a second one.
+  const baseSearchRef = useRef(baseSearch);
+  useEffect(() => {
+    baseSearchRef.current = baseSearch;
+  }, [baseSearch]);
   const [status, setStatus] = useState<Status>("idle");
   const [businesses, setBusinesses] = useState<BusinessRow[]>([]);
   // Telescope ("búsqueda avanzada") and the eye toggle aren't standard
@@ -479,10 +522,13 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
   // not stalling every request the way firing everything in parallel did
   // for the regular keyword search.
   const runAdvancedSearch = useCallback((codes: string[], entidad: string, municipio: string) => {
-    // This is the project's real initial search, run at the location the
-    // user just chose in the onboarding step — mark auto-search done so it
-    // never re-fires afterward at the device's actual location instead.
+    // Counts as this project's search — same as the keyword search, it
+    // shouldn't be followed by an automatic re-search somewhere else.
     autoSearched.current = true;
+    // A new category search replaces the previous one — merging into old
+    // results would leave them without code provenance (always visible,
+    // unfilterable in the settings drawer).
+    setAdvancedResults([]);
     setAdvancedProgress({ running: true, completed: 0, total: codes.length, found: 0, failed: 0, currentTitles: [] });
     setProgressCardVisible(true);
     setAdvancedResultCodes(new Map());
@@ -693,6 +739,29 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     [project]
   );
 
+  const runBaseSearch = useCallback(
+    (base: ProjectBaseSearch) => {
+      if (!base.center) return;
+      autoSearched.current = true;
+      setShowingBaseSearch(true);
+      suppressNextMoveEnd.current = true;
+      mapRef.current?.flyTo({ center: [base.center.lng, base.center.lat], zoom: INITIAL_ZOOM, duration: 800 });
+      runSearch(base.center, base.radiusM);
+      if (hasCategorySearch(base)) {
+        runAdvancedSearch(base.scianCodes, base.entidad, base.municipio);
+      } else {
+        // Keyword-only project: drop any advanced results explored since.
+        if (project) clearCachedAdvancedSearch(project.id);
+        setAdvancedResults([]);
+        setAdvancedResultCodes(new Map());
+        setAdvancedCodes([]);
+        setActiveAdvancedCodes(new Set());
+        setAdvancedProgress(null);
+      }
+    },
+    [project, runSearch, runAdvancedSearch]
+  );
+
   useImperativeHandle(ref, () => ({
     flyToAndSearch: (center) => {
       // Free users get one search on the house (whatever the project
@@ -703,9 +772,10 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
         return;
       }
       mapRef.current?.flyTo({ center: [center.lng, center.lat], zoom: 14, duration: 800 });
+      setShowingBaseSearch(false);
       runSearch(center, DEFAULT_RADIUS_M);
     },
-    runAdvancedSearch,
+    runBaseSearch,
   }));
 
   // Reset the "have we auto-searched yet" flag whenever the active project
@@ -716,9 +786,14 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
   // unmounts/remounts BusinessMap) show the same pins instantly rather than
   // re-searching every time.
   useEffect(() => {
-    autoSearched.current = false;
     const cached = project ? readCachedSearch(project.id) : null;
-    if (cached) autoSearched.current = true;
+    const cachedAdvanced = project ? readCachedAdvancedSearch(project.id) : null;
+    // Nothing searches on open — fresh cached results are shown as-is, and
+    // otherwise the map waits at the project's area for the user to choose
+    // "Búsqueda del proyecto" or "Buscar en esta área". (Brand-new projects
+    // get their base search run once, from AppShell's location step.)
+    const base = project ? baseSearchRef.current : null;
+    autoSearched.current = !!(cached || cachedAdvanced);
 
     const resetTimer = setTimeout(() => {
       setBusinesses(cached?.businesses ?? []);
@@ -732,7 +807,6 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
       // (mark-visited/save attributes to it), so a *different* project starts
       // empty — but for the *same* project, rehydrate from its own cache
       // instead of discarding results the user hasn't asked to redo.
-      const cachedAdvanced = project ? readCachedAdvancedSearch(project.id) : null;
       setAdvancedResults(cachedAdvanced?.results ?? []);
       setAdvancedResultCodes(
         new Map(cachedAdvanced?.resultCodeEntries.map(([id, codes]) => [id, new Set(codes)]) ?? [])
@@ -742,20 +816,10 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
       setAdvancedProgress(null);
       setProgressCardVisible(true);
       setShowAdvancedPins(true);
+      setShowingBaseSearch(!!base && cacheMatchesBase(base, cached, cachedAdvanced));
     }, 0);
     return () => clearTimeout(resetTimer);
   }, [project]);
-
-  // Land on the user's location and search automatically the first time we
-  // have both a project and a resolved location — but not while the
-  // onboarding location step is still pending, since that step is about to
-  // pick the location this search should run at (own choice or GPS) and an
-  // eager search here would just race it at the wrong spot.
-  useEffect(() => {
-    if (!project || !resolved || autoSearched.current || suppressAutoSearch) return;
-    autoSearched.current = true;
-    runSearch(location, DEFAULT_RADIUS_M);
-  }, [project, resolved, location, runSearch, suppressAutoSearch]);
 
   const handleMoveEnd = () => {
     if (suppressNextMoveEnd.current) {
@@ -781,6 +845,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     if (!map) return;
     const c = map.getCenter();
     const radiusM = radiusFromBounds(map.getBounds());
+    setShowingBaseSearch(false);
     runSearch({ lat: c.lat, lng: c.lng }, radiusM);
   };
 
@@ -860,12 +925,19 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
     });
   }, [selectedBusiness]);
 
+  // The two search choices under the search bar. "Buscar en esta área" is
+  // offered after panning away, and also up front on an empty map so a
+  // quick nearby search never requires running the whole project search.
+  const searchChoicesBlocked = !project || onboardingActive || status === "loading";
+  const showAreaChoice =
+    !searchChoicesBlocked && (showSearchArea || (status === "idle" && allResultsBusinesses.length === 0));
+  const showProjectChoice = !searchChoicesBlocked && !!baseSearch?.center && !showingBaseSearch;
+
   return (
     <div className="relative h-dvh w-full">
       <MapGL
         ref={mapRef}
-        key={resolved ? "geo" : "default"}
-        initialViewState={{ latitude: location.lat, longitude: location.lng, zoom: INITIAL_ZOOM }}
+        initialViewState={{ latitude: initialCenter.lat, longitude: initialCenter.lng, zoom: INITIAL_ZOOM }}
         onMoveEnd={handleMoveEnd}
         onClick={handleMapClick}
         interactiveLayerIds={[CLUSTER_LAYER_ID, UNCLUSTERED_LAYER_ID]}
@@ -943,14 +1015,23 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
             <BusinessPin color={selectedPinColor} selected name={selectedBusiness.name} />
           </Marker>
         )}
-        {isPrecise && (
-          <Marker latitude={location.lat} longitude={location.lng} anchor="center">
+        {myLocation && (
+          <Marker latitude={myLocation.lat} longitude={myLocation.lng} anchor="center">
             <MyLocationDot />
           </Marker>
         )}
       </MapGL>
 
-      {showMapControlsHint && (
+      {/* Shares the space under the search bar with SearchProgressOverlay
+          and the search choices, so it waits until neither is showing (and
+          until onboarding is done) instead of rendering on top of them. */}
+      {showMapControlsHint &&
+        project &&
+        !onboardingActive &&
+        status !== "loading" &&
+        !advancedProgress &&
+        !showAreaChoice &&
+        !showProjectChoice && (
         <div className="pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-6">
           <div className="pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-2xl bg-popover/95 pt-14 pb-3 px-3 text-sm shadow-soft backdrop-blur-xl">
             <Telescope className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -971,21 +1052,38 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
         </div>
       )}
 
-      {showSearchArea && status !== "loading" && (
-        <SearchAreaButton
-          onClick={handleSearchThisArea}
-          pushedDown={!!advancedProgress}
-          locked={!isPaid && autoSearched.current}
-        />
+      {/* "Buscar en esta área" explores; "Búsqueda del proyecto" comes back
+          to the project's saved search. Side by side in one row (wrapping
+          on narrow phones) so they never stack on top of each other. The
+          pushed-down offset clears the advanced-search progress card. */}
+      {(showAreaChoice || showProjectChoice) && (
+        <div
+          className={`pointer-events-none absolute inset-x-0 z-10 flex flex-wrap justify-center gap-2 px-6 ${advancedProgress ? "top-[13.5rem]" : "top-36"}`}
+        >
+          {showAreaChoice && (
+            <SearchAreaButton onClick={handleSearchThisArea} locked={!isPaid && autoSearched.current} />
+          )}
+          {showProjectChoice && baseSearch && <ProjectSearchButton onClick={() => runBaseSearch(baseSearch)} />}
+        </div>
       )}
 
-      {isPrecise && (
-        <LocateButton
-          onClick={() =>
-            mapRef.current?.flyTo({ center: [location.lng, location.lat], zoom: 14, duration: 600 })
+      {/* Always available — asking for location here is tied to a clear
+          intent ("take me to where I am"), unlike prompting on page load. */}
+      <LocateButton
+        locating={myLocationStatus === "locating"}
+        onClick={async () => {
+          const coords = await requestMyLocation();
+          if (!coords) {
+            toast({
+              title: "No pudimos acceder a tu ubicación",
+              description: "Revisa el permiso de ubicación de tu navegador.",
+              variant: "error",
+            });
+            return;
           }
-        />
-      )}
+          mapRef.current?.flyTo({ center: [coords.lng, coords.lat], zoom: INITIAL_ZOOM, duration: 600 });
+        }}
+      />
 
       {/* One shared toggle for the merged result set (regular + advanced —
           see the comment by allResultsBusinesses above for why they share a
@@ -1051,7 +1149,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
           type="button"
           onClick={() => {
             const c = mapRef.current?.getMap()?.getCenter();
-            setAdvancedSearchCenter(c ? { lat: c.lat, lng: c.lng } : location);
+            setAdvancedSearchCenter(c ? { lat: c.lat, lng: c.lng } : initialCenter);
             setAdvancedSearchOpen(true);
           }}
           aria-label="Búsqueda avanzada"
@@ -1073,7 +1171,10 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
         open={advancedSearchOpen}
         onOpenChange={setAdvancedSearchOpen}
         mapCenter={advancedSearchCenter}
-        onSubmit={runAdvancedSearch}
+        onSubmit={(codes, entidad, municipio) => {
+          setShowingBaseSearch(false);
+          runAdvancedSearch(codes, entidad, municipio);
+        }}
       />
 
       <SearchProgressOverlay
@@ -1121,7 +1222,7 @@ export const BusinessMap = forwardRef<BusinessMapHandle, BusinessMapProps>(funct
             }
             setSelectedBusiness(business);
           }}
-          userLocation={location}
+          userLocation={myLocation ?? undefined}
           leadsByBusinessId={leadsByBusinessId}
           savedIds={savedIds}
           onMarkVisited={onMarkVisited}

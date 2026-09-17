@@ -58,7 +58,9 @@ export function SearchProgressOverlay({
       <button
         type="button"
         onClick={onExpand}
-        className="absolute top-20 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-white shadow-soft"
+        // Sits just below the search bar (top-20 + h-11) — at top-20 it was
+        // rendered underneath the bar's z-20 and never visible.
+        className="absolute top-[8.25rem] left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-white shadow-soft"
         style={{ backgroundColor: ACCENT }}
       >
         {advanced.running ? (

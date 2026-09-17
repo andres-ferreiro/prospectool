@@ -6,7 +6,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AiDescribeStep } from "./ai-describe-step";
 import { CreateProjectForm } from "./create-project-form";
 import { useIsDesktop } from "@/hooks/use-media-query";
-import { setPendingAiSearch } from "@/lib/pending-ai-search";
 import type { ProjectRow } from "@/lib/db/types";
 
 interface CreateProjectDrawerProps {
@@ -59,7 +58,6 @@ export function CreateProjectDrawer({
         initialScianCodes={initialScianCodes}
         initialName={initialName}
         onCreated={(project) => {
-          if (initialScianCodes.length > 0) setPendingAiSearch(project.id, initialScianCodes);
           onCreated(project);
           resetSteps();
         }}

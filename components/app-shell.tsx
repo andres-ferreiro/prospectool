@@ -8,17 +8,29 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { LocationSearchBar } from "@/components/layout/location-search-bar";
 import { CreateProjectDrawer } from "@/components/project-setup/create-project-drawer";
 import { EditProjectDrawer } from "@/components/project-setup/edit-project-drawer";
-import { LocationStepOverlay } from "@/components/onboarding/location-step-overlay";
+import { LocationStepOverlay, type ResolvedSearchLocation } from "@/components/onboarding/location-step-overlay";
 import { PaywallModal } from "@/components/billing/paywall-modal";
 import { UnlockedModal } from "@/components/billing/unlocked-modal";
 import { useUser } from "@/hooks/use-user";
 import { toast } from "@/lib/toast";
-import { takePendingAiSearch } from "@/lib/pending-ai-search";
+import { DEFAULT_SEARCH_RADIUS_M } from "@/lib/project-base-search";
 import { canCreateProject } from "@/lib/billing/limits";
 import { openPaywall, type PaywallReason } from "@/lib/paywall";
-import type { BusinessRow, LeadRow, LeadWithBusiness, ProjectRow, SavedBusinessWithBusiness } from "@/lib/db/types";
+import type {
+  BusinessRow,
+  LeadRow,
+  LeadWithBusiness,
+  ProjectBaseSearch,
+  ProjectRow,
+  SavedBusinessWithBusiness,
+} from "@/lib/db/types";
 
 const PAYWALL_REASONS = new Set<string>(["proyecto", "crm", "resultados", "calendario"]);
+
+// Projects whose location step was skipped during this page session — kept
+// at module scope (not state) because switching to the CRM tab and back
+// remounts AppShell, and "not now" shouldn't re-ask on every tab switch.
+const skippedLocationStep = new Set<string>();
 
 interface AppShellProps {
   initialProjects: ProjectRow[];
@@ -37,7 +49,16 @@ export function AppShell({ initialProjects, activeProject, isPaid }: AppShellPro
   const [editDrawerOpen, setEditDrawerOpen] = useState(false);
   const [leads, setLeads] = useState<LeadWithBusiness[]>([]);
   const [savedBusinesses, setSavedBusinesses] = useState<SavedBusinessWithBusiness[]>([]);
-  const [pendingAiCodes, setPendingAiCodes] = useState<string[] | null>(null);
+  // Set the moment the location step resolves, so the map and the step
+  // react immediately instead of waiting on the PATCH + a server refresh.
+  const [baseSearchOverride, setBaseSearchOverride] = useState<ProjectBaseSearch | null>(null);
+  const baseSearch = baseSearchOverride ?? activeProject?.base_search ?? null;
+  const [locationStepSkipped, setLocationStepSkipped] = useState(
+    () => !!activeProject && skippedLocationStep.has(activeProject.id)
+  );
+  // A project without a saved search area (brand new, AI flow or not) asks
+  // where to search — BusinessMap never guesses a location on its own.
+  const locationStepOpen = !!activeProject && !baseSearch?.center && !locationStepSkipped;
   const [showUnlockedModal, setShowUnlockedModal] = useState(false);
 
   // Reset before loading, so switching projects doesn't briefly show the
@@ -79,17 +100,6 @@ export function AppShell({ initialProjects, activeProject, isPaid }: AppShellPro
     return () => {
       cancelled = true;
     };
-  }, [activeProject]);
-
-  // One-shot: if this project was just created via the AI flow with usable
-  // SCIAN codes, they were stashed in sessionStorage before the redirect
-  // that brought us here (see lib/pending-ai-search.ts) — surface the
-  // location step to act on them. Reading also clears the entry, so this
-  // never re-fires on a later revisit to the same project.
-  useEffect(() => {
-    if (!activeProject) return;
-    const codes = takePendingAiSearch(activeProject.id);
-    if (codes.length > 0) setPendingAiCodes(codes);
   }, [activeProject]);
 
   const handleCreated = (project: ProjectRow) => {
@@ -145,12 +155,41 @@ export function AppShell({ initialProjects, activeProject, isPaid }: AppShellPro
     setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
   };
 
-  const handleLocationResolved = (entidad: string, municipio: string) => {
-    if (pendingAiCodes) mapRef.current?.runAdvancedSearch(pendingAiCodes, entidad, municipio);
-    setPendingAiCodes(null);
+  const handleLocationResolved = (location: ResolvedSearchLocation) => {
+    if (!activeProject) return;
+    const next: ProjectBaseSearch = {
+      center: location.center,
+      radiusM: DEFAULT_SEARCH_RADIUS_M,
+      entidad: location.entidad,
+      municipio: location.municipio,
+      // Picked by the AI flow at creation — kept as-is.
+      scianCodes: baseSearch?.scianCodes ?? [],
+    };
+    setBaseSearchOverride(next);
+    mapRef.current?.runBaseSearch(next);
+
+    fetch(`/api/projects/${activeProject.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ baseSearch: next }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      })
+      .catch((err) => {
+        console.error("Error al guardar la búsqueda del proyecto:", err);
+        toast({
+          title: "No se pudo guardar la zona del proyecto",
+          description: "Tus resultados se muestran igual, pero te la pediremos de nuevo la próxima vez.",
+          variant: "error",
+        });
+      });
   };
 
-  const handleLocationSkip = () => setPendingAiCodes(null);
+  const handleLocationSkip = () => {
+    if (activeProject) skippedLocationStep.add(activeProject.id);
+    setLocationStepSkipped(true);
+  };
 
   // The CRM route's server-side gate can't open a client modal directly —
   // it redirects here with ?paywall=<reason> instead, and this opens the
@@ -181,7 +220,8 @@ export function AppShell({ initialProjects, activeProject, isPaid }: AppShellPro
         ref={mapRef}
         project={activeProject}
         suppressDrawer={drawerOpen}
-        suppressAutoSearch={pendingAiCodes !== null}
+        baseSearch={baseSearch}
+        onboardingActive={locationStepOpen}
         leads={leads}
         savedBusinesses={savedBusinesses}
         onMarkVisited={handleMarkVisited}
@@ -229,7 +269,7 @@ export function AppShell({ initialProjects, activeProject, isPaid }: AppShellPro
       />
 
       <LocationStepOverlay
-        open={pendingAiCodes !== null}
+        open={locationStepOpen && !drawerOpen && !showUnlockedModal}
         onResolved={handleLocationResolved}
         onSkip={handleLocationSkip}
       />

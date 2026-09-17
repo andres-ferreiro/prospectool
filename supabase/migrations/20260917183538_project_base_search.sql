@@ -1,0 +1,12 @@
+-- A project's own search — where (picked in the onboarding location step)
+-- and which SCIAN categories (picked by the AI flow at creation) — so
+-- reopening the project on any device re-runs the same search instead of
+-- starting from an empty map. Results themselves aren't stored here: the
+-- global denue_searches cache already keeps them, and re-running an
+-- identical search is a cache hit.
+--
+-- Shape: { center: {lat, lng} | null, radiusM, entidad | null,
+--          municipio | null, scianCodes: text[] }
+-- Validated in lib/project-base-search.ts; covered by the existing
+-- "own projects" RLS policy.
+alter table projects add column base_search jsonb;

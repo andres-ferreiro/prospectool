@@ -58,3 +58,29 @@ export async function reverseGeocodeToEntidadMunicipio(coords: {
     return { entidad: null, municipio: null };
   }
 }
+
+// Forward-geocodes an INEGI Estado + Municipio pair to map coordinates via
+// Mapbox — the manual path of the onboarding location step needs a center
+// for the keyword (radius) search, which the codes alone can't provide.
+// Best-effort like the reverse lookup above: resolves to null on any failure.
+export async function geocodeEntidadMunicipio(
+  entidadCode: string,
+  municipioCode: string
+): Promise<{ lat: number; lng: number } | null> {
+  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+  const entidad = ENTIDADES.find((e) => e.code === entidadCode);
+  const municipio = MUNICIPIOS.find((m) => m.entidadCode === entidadCode && m.municipioCode === municipioCode);
+  if (!token || !entidad || !municipio) return null;
+
+  const query = encodeURIComponent(`${municipio.name}, ${entidad.name}`);
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${query}.json?country=mx&limit=1&access_token=${token}`;
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    const center = (data.features?.[0]?.center ?? null) as [number, number] | null;
+    return center ? { lat: center[1], lng: center[0] } : null;
+  } catch {
+    return null;
+  }
+}

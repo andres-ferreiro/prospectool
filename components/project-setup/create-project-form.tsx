@@ -19,8 +19,8 @@ interface CreateProjectFormProps {
   onCreated: (project: ProjectRow) => void;
   initialKeywords?: string[];
   /** SCIAN codes the AI already picked, shown for context alongside the
-   *  keyword picker — informational only here, they're queued for the
-   *  location step's category search regardless of what's edited below. */
+   *  keyword picker — not editable here; saved on the project as its
+   *  base search's categories regardless of what's edited below. */
   initialScianCodes?: string[];
   /** AI-suggested project name, prefilled but still freely editable. */
   initialName?: string;
@@ -53,7 +53,7 @@ export function CreateProjectForm({
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productService: name, keywords }),
+        body: JSON.stringify({ productService: name, keywords, scianCodes: initialScianCodes }),
       });
 
       if (!res.ok) {

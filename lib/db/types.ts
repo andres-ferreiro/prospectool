@@ -1,8 +1,21 @@
+/** A project's own search, re-run whenever the project opens without fresh
+ *  cached results — see lib/project-base-search.ts. */
+export interface ProjectBaseSearch {
+  /** Null until the onboarding location step picks a place. */
+  center: { lat: number; lng: number } | null;
+  radiusM: number;
+  entidad: string | null;
+  municipio: string | null;
+  /** AI-picked SCIAN categories; empty for keyword-only projects. */
+  scianCodes: string[];
+}
+
 export interface ProjectRow {
   id: string;
   user_id: string;
   product_service: string;
   keywords: string[];
+  base_search: ProjectBaseSearch | null;
   created_at: string;
 }
 

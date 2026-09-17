@@ -1,5 +1,6 @@
 import { createProject, listProjects } from "@/lib/db/projects";
 import { UpgradeRequiredError } from "@/lib/billing/errors";
+import { parseScianCodes } from "@/lib/project-base-search";
 
 export async function GET() {
   const projects = await listProjects();
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const project = await createProject({ productService, keywords });
+    const project = await createProject({ productService, keywords, scianCodes: parseScianCodes(body.scianCodes) });
     return Response.json(project, { status: 201 });
   } catch (err) {
     if (err instanceof UpgradeRequiredError) {
