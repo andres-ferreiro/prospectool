@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Mail, Phone, Globe, Lock, Search, SearchX, Telescope } from "lucide-react";
 import { DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,17 @@ export const BUSINESS_FILTERS: { key: FilterKey; label: string; icon: typeof Pho
   { key: "email", label: "Con correo", icon: Mail },
   { key: "website", label: "Con sitio web", icon: Globe },
 ];
+
+// Rows rendered per batch. A municipio-wide category search returns
+// thousands of businesses, and every row is real DOM (contact icons, save
+// and visit buttons) — rendering them all at once made opening the drawer
+// and typing in its search box visibly janky. More are appended as the
+// sentinel below scrolls into view, so scrolling stays continuous and no
+// pagination controls are needed.
+const RENDER_BATCH = 40;
+// Appends the next batch before the sentinel is actually on screen, so the
+// list is already filled by the time the user reaches the bottom.
+const RENDER_AHEAD_PX = 600;
 
 // Matches business-list-row.tsx's ADVANCED_SEARCH_COLOR.
 const ADVANCED_SEARCH_COLOR = "#6366f1";
@@ -102,6 +113,41 @@ export function BusinessList({
     [businesses, lockedIds]
   );
 
+  // Start over at the top only when the user changes what they're looking
+  // at (a query or filter change), not when results merely stream in from a
+  // running search — that would yank a reader back to the first batch every
+  // time another category resolved. Adjusted during render, the same
+  // pattern results-drawer.tsx uses for its filters.
+  const viewSignature = `${query.trim()}|${Array.from(activeFilters).sort().join(",")}`;
+  const [renderCount, setRenderCount] = useState(RENDER_BATCH);
+  const [prevSignature, setPrevSignature] = useState(viewSignature);
+  if (viewSignature !== prevSignature) {
+    setPrevSignature(viewSignature);
+    setRenderCount(RENDER_BATCH);
+  }
+
+  const renderedRows = useMemo(
+    () => unlockedVisible.slice(0, renderCount),
+    [unlockedVisible, renderCount]
+  );
+  const hasMoreRows = renderCount < unlockedVisible.length;
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!hasMoreRows || !sentinel) return;
+    // Default root: the ScrollArea's own clipping still applies, so a
+    // sentinel scrolled out of the drawer correctly reads as off-screen.
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setRenderCount((count) => count + RENDER_BATCH);
+      },
+      { rootMargin: `${RENDER_AHEAD_PX}px` }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreRows, renderCount]);
+
   return (
     <>
       <DrawerHeader>
@@ -154,7 +200,7 @@ export function BusinessList({
               title={query ? "Ningún resultado coincide con la búsqueda" : "Ningún resultado coincide con los filtros"}
             />
           )}
-          {unlockedVisible.map((business) => (
+          {renderedRows.map((business) => (
             <BusinessListRow
               key={business.id}
               business={business}
@@ -166,6 +212,12 @@ export function BusinessList({
               onMarkVisited={onMarkVisited}
             />
           ))}
+
+          {hasMoreRows && (
+            <div ref={sentinelRef} className="py-3 text-center text-xs text-muted-foreground">
+              Mostrando {renderedRows.length} de {unlockedVisible.length}…
+            </div>
+          )}
 
           {lockedPreview.length > 0 && (
             <div className="relative mt-1 overflow-hidden rounded-lg">

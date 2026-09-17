@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TopBar } from "@/components/layout/top-bar";
 import { BottomNav } from "@/components/layout/bottom-nav";
@@ -15,6 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/use-user";
 import { useIsDesktop } from "@/hooks/use-media-query";
+import { useRefreshOnFocus } from "@/hooks/use-refresh-on-focus";
 import { toast } from "@/lib/toast";
 import { monthRange, weekRange, type DateRange } from "@/lib/calendar/date-range";
 import { addDays, startOfWeek } from "@/lib/calendar/format";
@@ -43,8 +44,8 @@ export function CalendarPage({ projects, activeProject, initialAppointments }: C
   const [drawerTarget, setDrawerTarget] = useState<"new" | string | null>(null);
   const [drawerDefaults, setDrawerDefaults] = useState<{ start?: Date } | undefined>(undefined);
 
-  const loadRange = async (nextRange: DateRange) => {
-    setLoadingRange(true);
+  const loadRange = async (nextRange: DateRange, options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoadingRange(true);
     try {
       const params = new URLSearchParams({ projectId: activeProject.id, from: nextRange.from, to: nextRange.to });
       const res = await fetch(`/api/appointments?${params.toString()}`);
@@ -53,11 +54,27 @@ export function CalendarPage({ projects, activeProject, initialAppointments }: C
       setAppointments(data.appointments);
     } catch (err) {
       console.error("Error al cargar las citas:", err);
-      toast({ title: "No se pudieron cargar las citas", variant: "error" });
+      // A silent background refresh keeps whatever is already on screen
+      // rather than interrupting with an error the user didn't ask for.
+      if (!options?.silent) toast({ title: "No se pudieron cargar las citas", variant: "error" });
     } finally {
-      setLoadingRange(false);
+      if (!options?.silent) setLoadingRange(false);
     }
   };
+
+  // Re-fetches whatever range is on screen when the page opens or the tab
+  // comes back — initialAppointments only seeds the state, so an
+  // appointment added from another device stayed invisible until a reload.
+  const visibleRange = view === "week" ? weekRange(weekStart) : monthRange(month);
+  const { from: visibleFrom, to: visibleTo } = visibleRange;
+  useRefreshOnFocus(
+    useCallback(() => {
+      void loadRange({ from: visibleFrom, to: visibleTo }, { silent: true });
+      // loadRange is re-created every render but only closes over the
+      // project id and setters, so the range strings are the real inputs.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [visibleFrom, visibleTo])
+  );
 
   const handleNavigateMonth = (delta: 1 | -1) => {
     const next = new Date(month.getFullYear(), month.getMonth() + delta, 1);
@@ -112,7 +129,7 @@ export function CalendarPage({ projects, activeProject, initialAppointments }: C
   };
 
   return (
-    <div className="min-h-dvh w-full bg-sheet">
+    <div className="flex h-dvh w-full flex-col overflow-hidden bg-sheet">
       <TopBar
         projects={projects}
         activeProject={activeProject}
@@ -128,8 +145,8 @@ export function CalendarPage({ projects, activeProject, initialAppointments }: C
       <main
         className={
           isDesktop
-            ? "mx-auto flex h-dvh max-w-6xl flex-col px-8 pt-20 pb-28"
-            : "mx-auto max-w-2xl px-4 pt-20 pb-28"
+            ? "mx-auto flex w-full min-h-0 flex-1 max-w-6xl flex-col overflow-y-auto overscroll-contain px-8 pt-20 pb-[calc(var(--bottom-nav-clearance)+1.5rem)]"
+            : "mx-auto w-full min-h-0 flex-1 overflow-y-auto overscroll-contain max-w-2xl px-4 pt-20 pb-[calc(var(--bottom-nav-clearance)+1.5rem)]"
         }
       >
         {isDesktop ? (

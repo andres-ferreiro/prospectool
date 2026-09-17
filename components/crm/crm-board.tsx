@@ -63,7 +63,7 @@ export function CrmBoard({ projectId, leads, onStageChange, onLeadUpdated, onCon
         />
       </div>
 
-      <div className="flex flex-col gap-2 pb-40">
+      <div className="flex flex-col gap-2 pb-[calc(var(--bottom-nav-clearance)+4.5rem)]">
         {leads.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border">
             <EmptyState
@@ -86,7 +86,9 @@ export function CrmBoard({ projectId, leads, onStageChange, onLeadUpdated, onCon
         )}
       </div>
 
-      <div className="fixed inset-x-0 bottom-[76px] z-30 flex justify-center px-4">
+      {/* Sits directly above BottomNav — derived from its clearance so the
+          home-indicator inset can't push the nav over these filters. */}
+      <div className="fixed inset-x-0 bottom-[calc(var(--bottom-nav-clearance)+0.5rem)] z-30 flex justify-center px-4">
         <div className="flex max-w-full gap-1.5 overflow-x-auto rounded-full bg-popover/95 p-1.5 shadow-soft backdrop-blur">
           {STAGES.map((stage) => {
             const active = stage === activeStage;

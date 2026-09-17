@@ -6,6 +6,13 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* Vertical space the floating BottomNav occupies: its own bottom offset
+     (1rem + the home-indicator inset) plus its height. Anything fixed above
+     it, and any scroll container that must not end underneath it, clears
+     this instead of hardcoding pixels — a hardcoded 76px was correct only
+     on devices with no safe-area inset, and the nav covered the CRM stage
+     filters on every phone that has one. */
+  --bottom-nav-clearance: calc(1rem + env(safe-area-inset-bottom) + 3.25rem);
   --accent: oklch(0.97 0 0);
   --sheet: #f5f5f6;
   --kanban-column: oklch(0.93 0 0);

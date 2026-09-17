@@ -34,6 +34,8 @@ const tabClassName = (isActive: boolean) =>
 // live on the map itself (see the floating CRM-overview toggle), not here.
 export function BottomNav({ projectId, active, isPaid = true }: BottomNavProps) {
   return (
+    // The bottom offset here is what --bottom-nav-clearance (app/globals.css)
+    // is derived from — keep them in step if this moves.
     <nav className="pointer-events-none fixed inset-x-0 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 flex justify-center px-6">
       <div className="pointer-events-auto flex items-center gap-1 rounded-full bg-popover/95 p-1.5 shadow-soft backdrop-blur">
         {TABS.map(({ key, label, icon: Icon, href }) => {
