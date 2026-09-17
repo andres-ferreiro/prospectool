@@ -35,6 +35,9 @@ describe("parseBaseSearch", () => {
     expect(parseBaseSearch({ center: { lat: "25", lng: -100 } })).toBeNull();
     expect(parseBaseSearch({ center: { lat: 125, lng: -100 } })).toBeNull();
     expect(parseBaseSearch({ radiusM: 999999 })).toBeNull();
+    // Outside the 500–5000 m window /api/denue/search accepts.
+    expect(parseBaseSearch({ radiusM: 100 })).toBeNull();
+    expect(parseBaseSearch({ radiusM: 5001 })).toBeNull();
     expect(parseBaseSearch({ entidad: "Nuevo León" })).toBeNull();
     expect(parseBaseSearch({ municipio: "39" })).toBeNull();
   });

@@ -22,8 +22,10 @@ export function parseBaseSearch(input: unknown): ProjectBaseSearch | null {
     center = { lat: c.lat, lng: c.lng };
   }
 
+  // Same 500–5000 m window /api/denue/search enforces — a radius outside it
+  // would store a project whose every search fails at the API.
   const radiusM = raw.radiusM === undefined ? DEFAULT_SEARCH_RADIUS_M : raw.radiusM;
-  if (!isFiniteNumber(radiusM) || radiusM <= 0 || radiusM > 5000) return null;
+  if (!isFiniteNumber(radiusM) || radiusM < 500 || radiusM > 5000) return null;
 
   const entidad = raw.entidad ?? null;
   if (entidad !== null && (typeof entidad !== "string" || !/^\d{2}$/.test(entidad))) return null;
